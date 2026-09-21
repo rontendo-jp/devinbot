@@ -544,13 +544,13 @@ class TelegramBotService:
     
     async def help_command(self, update: Update, context: CallbackContext):
         """Handle /help command."""
-        chat_id = update.effective_chat.id
+        scope = self._scope_of(update)
         help_text = """
 <b>DevinBot Commands</b>
 
 /status - Show active sessions
 /cancel &lt;session_id&gt; - Cancel a running session
-/create [owner/repo] [--mode &lt;mode&gt;] &lt;prompt&gt; - Create a new session
+/create [owner/repo] [--mode normal|fast|lite|ultra|fusion] &lt;prompt&gt; - Create a new session
 /metrics - Show current metrics
 /help - Show this help message
 """

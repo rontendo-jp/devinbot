@@ -238,3 +238,20 @@ async def test_metrics_counts_and_degrades_without_analytics(h):
     await h.svc.metrics_command(update(), ctx())
     assert "total 2" in h.text and "completed 1" in h.text and "success 50%" in h.text
     assert "Analytics API unavailable" in h.text
+
+
+# --- /help -------------------------------------------------------------------
+
+async def test_help_replies_in_topic_without_db(h):
+    await h.svc.help_command(update(topic_id="5"), ctx())
+    assert h.replies[0][0] == CommandScope(chat_id=MAIN_CHAT, topic_id="5")
+    assert "/create [owner/repo]" in h.text and "<b>DevinBot Commands</b>" in h.text
+
+
+async def test_help_and_usage_are_valid_telegram_html(h):
+    """Static texts must only contain Telegram-supported tags (angle brackets escaped)."""
+    import re
+    await h.svc.help_command(update(), ctx())
+    for text in (h.text, telegram_bot.CREATE_USAGE):
+        tags = re.findall(r"<(/?)(\w+)", text)
+        assert {name for _, name in tags} <= {"b", "i", "a", "code", "pre"}
