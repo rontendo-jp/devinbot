@@ -59,6 +59,9 @@ class Session(Base):
     trigger_type = Column(SQLEnum(TriggerType), nullable=False)
     trigger_context = Column(Text, nullable=True)  # JSON string
     status = Column(SQLEnum(SessionStatus), default=SessionStatus.PENDING, nullable=False, index=True)
+    # Raw values from the Devin API, stored as-is (e.g. running / waiting_for_user)
+    devin_status = Column(String(50), nullable=True)
+    devin_status_detail = Column(String(100), nullable=True)
     prompt = Column(Text, nullable=False)
     devin_mode = Column(SQLEnum(DevinMode), default=DevinMode.NORMAL)
     error_message = Column(Text, nullable=True)

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # Application
     app_base_url: str = "http://localhost:8000"
     log_level: str = "INFO"
+    session_sync_interval_seconds: int = 120
     
     # CORS
     cors_origins: str = "http://localhost:3000"
