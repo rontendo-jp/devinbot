@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import MetricsCard from '@/components/MetricsCard';
 import SessionList from '@/components/SessionList';
 import RepositorySelector from '@/components/RepositorySelector';
@@ -9,6 +9,7 @@ import { useLocale } from '@/i18n/LocaleContext';
 import { TranslationKey } from '@/i18n/translations';
 import { config } from '@/config';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { usePolling } from '@/hooks/usePolling';
 
 const TIME_RANGES = ['1h', '24h', '7d', '30d'] as const;
 
@@ -22,32 +23,31 @@ export default function Home() {
   
   const { metrics: realtimeMetrics, connected: wsConnected, error: wsError } = useWebSocket();
 
-  useEffect(() => {
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 30000); // Refresh every 30 seconds
-    return () => clearInterval(interval);
-  }, [selectedRepository, timeRange]);
+  usePolling(
+    async (signal, isInitial) => {
+      try {
+        if (isInitial) setLoading(true);
+        const params = new URLSearchParams();
+        if (selectedRepository) params.append('repository_id', selectedRepository);
+        params.append('time_range', timeRange);
 
-  const fetchMetrics = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (selectedRepository) params.append('repository_id', selectedRepository);
-      params.append('time_range', timeRange);
+        const response = await fetch(`${config.apiUrl}/api/metrics/?${params}`, { signal });
+        if (!response.ok) throw new Error('Failed to fetch metrics');
 
-      const response = await fetch(`${config.apiUrl}/api/metrics/?${params}`);
-      if (!response.ok) throw new Error('Failed to fetch metrics');
-      
-      const data = await response.json();
-      setMetrics(data);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching metrics:', err);
-      setError('app.fetchMetricsFailed');
-    } finally {
-      setLoading(false);
-    }
-  };
+        const data = await response.json();
+        setMetrics(data);
+        setError(null);
+      } catch (err) {
+        if (signal.aborted) return;
+        console.error('Error fetching metrics:', err);
+        setError('app.fetchMetricsFailed');
+      } finally {
+        if (!signal.aborted) setLoading(false);
+      }
+    },
+    config.metricsPollIntervalMs,
+    [selectedRepository, timeRange],
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">

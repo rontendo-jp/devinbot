@@ -50,7 +50,7 @@ Please review the changes, check for issues, and provide feedback.
             title=f"PR Review: {context.get('pr_number')}"
         )
         
-        devin_session_id = session_response.get("id")
+        devin_session_id = session_response.get("session_id")
         
         # Create session record
         new_session = Session(
@@ -123,7 +123,7 @@ Please analyze the issue and implement a solution.
             title=f"Issue: {context.get('issue_number')} - {context.get('title')}"
         )
         
-        devin_session_id = session_response.get("id")
+        devin_session_id = session_response.get("session_id")
         
         # Create session record
         new_session = Session(

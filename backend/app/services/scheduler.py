@@ -71,7 +71,7 @@ class TaskScheduler:
                     title=f"Scheduled: {task.name}"
                 )
                 
-                devin_session_id = session_response.get("id")
+                devin_session_id = session_response.get("session_id")
                 
                 # Create session record in database
                 new_session = Session(
