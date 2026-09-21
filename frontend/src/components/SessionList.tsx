@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { config } from '@/config';
+import { useLocale } from '@/i18n/LocaleContext';
+import { TranslationKey, translations } from '@/i18n/translations';
 
 interface Session {
   id: string;
@@ -18,7 +20,10 @@ interface SessionListProps {
   selectedRepository: string | null;
 }
 
+const FILTERS = ['all', 'running', 'completed', 'failed'] as const;
+
 export default function SessionList({ selectedRepository }: SessionListProps) {
+  const { locale, t } = useLocale();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,13 +41,13 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
       if (filter !== 'all') params.append('status', filter);
 
       const response = await fetch(`${config.apiUrl}/api/sessions/?${params}`);
-      if (!response.ok) throw new Error('Failed to fetch sessions');
+      if (!response.ok) throw new Error(t('sessions.fetchFailed'));
       
       const data = await response.json();
       setSessions(data.sessions);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : t('app.genericError'));
     } finally {
       setLoading(false);
     }
@@ -70,13 +75,18 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
     return icons[status as keyof typeof icons] || '❓';
   };
 
+  const getStatusLabel = (status: string) => {
+    const key = `status.${status}` as TranslationKey;
+    return key in translations.en ? t(key) : status;
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200">
       <div className="p-6 border-b border-gray-200">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-gray-900">Sessions</h2>
+          <h2 className="text-lg font-semibold text-gray-900">{t('sessions.title')}</h2>
           <div className="flex gap-2">
-            {['all', 'running', 'completed', 'failed'].map((status) => (
+            {FILTERS.map((status) => (
               <button
                 key={status}
                 onClick={() => setFilter(status)}
@@ -86,7 +96,7 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                {status.charAt(0).toUpperCase() + status.slice(1)}
+                {t(`filter.${status}`)}
               </button>
             ))}
           </div>
@@ -102,11 +112,11 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
       {loading ? (
         <div className="p-12 text-center">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-2 text-gray-600 text-sm">Loading sessions...</p>
+          <p className="mt-2 text-gray-600 text-sm">{t('sessions.loading')}</p>
         </div>
       ) : sessions.length === 0 ? (
         <div className="p-12 text-center">
-          <p className="text-gray-500 text-sm">No sessions found</p>
+          <p className="text-gray-500 text-sm">{t('sessions.empty')}</p>
         </div>
       ) : (
         <div className="divide-y divide-gray-200">
@@ -117,18 +127,18 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xl">{getStatusIcon(session.status)}</span>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(session.status)}`}>
-                      {session.status}
+                      {getStatusLabel(session.status)}
                     </span>
                     <span className="text-xs text-gray-500">
-                      {new Date(session.created_at).toLocaleString()}
+                      {new Date(session.created_at).toLocaleString(locale)}
                     </span>
                   </div>
                   <p className="text-sm text-gray-900 font-medium mb-1 truncate">
                     {session.prompt.substring(0, 100)}...
                   </p>
                   <div className="flex items-center gap-4 text-xs text-gray-500">
-                    <span>Trigger: {session.trigger_type}</span>
-                    <span>ID: {session.devin_session_id?.substring(0, 8)}...</span>
+                    <span>{t('sessions.trigger')}: {session.trigger_type}</span>
+                    <span>{t('sessions.id')}: {session.devin_session_id?.substring(0, 8)}...</span>
                   </div>
                 </div>
               </div>

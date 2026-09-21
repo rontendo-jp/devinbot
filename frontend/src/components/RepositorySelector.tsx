@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { config } from '@/config';
+import { useLocale } from '@/i18n/LocaleContext';
 
 interface Repository {
   id: string;
@@ -19,6 +20,7 @@ export default function RepositorySelector({
   selectedRepository, 
   onSelectRepository
 }: RepositorySelectorProps) {
+  const { t } = useLocale();
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
@@ -52,11 +54,11 @@ export default function RepositorySelector({
         disabled={loading}
       >
         {loading ? (
-          <span className="text-gray-500">Loading...</span>
+          <span className="text-gray-500">{t('repo.loading')}</span>
         ) : selectedRepo ? (
           <span className="text-gray-900">{selectedRepo.github_repo_path}</span>
         ) : (
-          <span className="text-gray-500">All Repositories</span>
+          <span className="text-gray-500">{t('repo.all')}</span>
         )}
       </button>
 
@@ -71,7 +73,7 @@ export default function RepositorySelector({
               !selectedRepository ? 'bg-blue-50 text-blue-900' : 'text-gray-900'
             }`}
           >
-            All Repositories
+            {t('repo.all')}
           </button>
           {repositories.map((repo) => (
             <button

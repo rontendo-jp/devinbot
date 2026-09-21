@@ -4,10 +4,16 @@ import { useState, useEffect } from 'react';
 import MetricsCard from '@/components/MetricsCard';
 import SessionList from '@/components/SessionList';
 import RepositorySelector from '@/components/RepositorySelector';
+import LanguageSelector from '@/components/LanguageSelector';
+import { useLocale } from '@/i18n/LocaleContext';
+import { TranslationKey } from '@/i18n/translations';
 import { config } from '@/config';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
+const TIME_RANGES = ['1h', '24h', '7d', '30d'] as const;
+
 export default function Home() {
+  const { t } = useLocale();
   const [selectedRepository, setSelectedRepository] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState('24h');
   const [metrics, setMetrics] = useState<any>(null);
@@ -30,13 +36,13 @@ export default function Home() {
       params.append('time_range', timeRange);
 
       const response = await fetch(`${config.apiUrl}/api/metrics/?${params}`);
-      if (!response.ok) throw new Error('Failed to fetch metrics');
+      if (!response.ok) throw new Error(t('app.fetchMetricsFailed'));
       
       const data = await response.json();
       setMetrics(data);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : t('app.genericError'));
     } finally {
       setLoading(false);
     }
@@ -48,14 +54,17 @@ export default function Home() {
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">DevinBot Dashboard</h1>
-            <p className="text-gray-600">Real-time observability for your Devin sessions</p>
+            <h1 className="text-2xl font-bold text-gray-900">{t('app.title')}</h1>
+            <p className="text-gray-600">{t('app.subtitle')}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className={`w-3 h-3 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-            <span className="text-sm text-gray-600">
-              {wsConnected ? 'Live' : 'Offline'}
-            </span>
+          <div className="flex items-center gap-4">
+            <LanguageSelector />
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+              <span className="text-sm text-gray-600">
+                {wsConnected ? t('app.live') : t('app.offline')}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -67,7 +76,7 @@ export default function Home() {
           />
           
           <div className="flex gap-2">
-            {['1h', '24h', '7d', '30d'].map((range) => (
+            {TIME_RANGES.map((range) => (
               <button
                 key={range}
                 onClick={() => setTimeRange(range)}
@@ -77,7 +86,7 @@ export default function Home() {
                     : 'bg-white text-gray-700 hover:bg-gray-100'
                 }`}
               >
-                {range}
+                {t(`timeRange.${range}` as TranslationKey)}
               </button>
             ))}
           </div>
@@ -94,7 +103,7 @@ export default function Home() {
         {loading && !metrics && (
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <p className="mt-2 text-gray-600">Loading metrics...</p>
+            <p className="mt-2 text-gray-600">{t('app.loadingMetrics')}</p>
           </div>
         )}
 
@@ -102,25 +111,25 @@ export default function Home() {
         {metrics && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <MetricsCard
-              title="Total Sessions"
+              title={t('metrics.totalSessions')}
               value={metrics.session_metrics.total_sessions}
               trend="+12%"
               positive
             />
             <MetricsCard
-              title="Active Sessions"
+              title={t('metrics.activeSessions')}
               value={realtimeMetrics?.active_sessions || metrics.session_metrics.active_sessions}
               trend="+2"
               positive
             />
             <MetricsCard
-              title="Success Rate"
+              title={t('metrics.successRate')}
               value={`${metrics.session_metrics.success_rate}%`}
               trend="+5%"
               positive
             />
             <MetricsCard
-              title="Cost (ACUs)"
+              title={t('metrics.cost')}
               value={metrics.cost_metrics.total_acus.toFixed(2)}
               trend="-8%"
               positive={false}
