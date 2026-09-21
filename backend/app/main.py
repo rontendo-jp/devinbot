@@ -69,6 +69,7 @@ async def lifespan(app: FastAPI):
     # Stop services
     if session_sync_task:
         session_sync_task.cancel()
+        await asyncio.gather(session_sync_task, return_exceptions=True)
     if task_scheduler:
         task_scheduler.stop()
     if telegram_service:

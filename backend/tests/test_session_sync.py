@@ -121,3 +121,64 @@ async def test_notifier_failure_does_not_break_sync(db_factory, monkeypatch):
     assert await svc.sync_all() == 1
     with db_factory() as db:
         assert db.query(DBSession).one().status == SessionStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_intermediate_raw_changes_are_stored_but_not_notified(db_factory, monkeypatch):
+    monkeypatch.setattr(session_sync, "SessionLocal", db_factory)
+    seed(db_factory, SessionStatus.RUNNING)
+    notifier = AsyncMock()
+    live = {"sid0000000000000": {"status": "new"}}
+    svc = make_service(live, notifier=notifier)
+
+    for payload in ({"status": "new"}, {"status": "claimed"}, {"status": "running", "status_detail": "working"}):
+        live["sid0000000000000"] = payload
+        await svc.sync_all()
+    notifier.assert_not_awaited()
+    with db_factory() as db:
+        row = db.query(DBSession).one()
+        assert (row.devin_status, row.devin_status_detail) == ("running", "working")
+
+    live["sid0000000000000"] = {"status": "running", "status_detail": "waiting_for_user"}
+    await svc.sync_all()
+    live["sid0000000000000"] = {"status": "running", "status_detail": "working"}
+    await svc.sync_all()
+    live["sid0000000000000"] = {"status": "running", "status_detail": "finished"}
+    await svc.sync_all()
+    assert [c.args[1] for c in notifier.await_args_list] == [
+        "running / working",            # -> waiting_for_user (needs input)
+        "running / waiting_for_user",   # -> working (input received)
+        "running / working",            # -> finished (coarse status changed)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_suspended_sessions_keep_being_polled(db_factory, monkeypatch):
+    monkeypatch.setattr(session_sync, "SessionLocal", db_factory)
+    seed(db_factory, SessionStatus.RUNNING)
+    notifier = AsyncMock()
+    live = {"sid0000000000000": {"status": "suspended", "status_detail": "inactivity"}}
+    svc = make_service(live, notifier=notifier)
+    await svc.sync_all()
+    with db_factory() as db:
+        assert db.query(DBSession).one().status == SessionStatus.COMPLETED
+
+    live["sid0000000000000"] = {"status": "running", "status_detail": "waiting_for_user"}
+    assert await svc.sync_all() == 1
+    with db_factory() as db:
+        row = db.query(DBSession).one()
+        assert row.status == SessionStatus.RUNNING
+        assert row.devin_status_detail == "waiting_for_user"
+        assert row.completed_at is None
+    assert notifier.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_refreshes_notify_once(db_factory, monkeypatch):
+    monkeypatch.setattr(session_sync, "SessionLocal", db_factory)
+    seed(db_factory, SessionStatus.RUNNING)
+    notifier = AsyncMock()
+    svc = make_service({"sid0000000000000": {"status": "exit"}}, notifier=notifier)
+    import asyncio
+    await asyncio.gather(svc.sync_all(), svc.sync_all())
+    assert notifier.await_count == 1
