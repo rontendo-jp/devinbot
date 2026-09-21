@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Global services
 task_scheduler = None
 telegram_service = None
+session_sync_task = None
 
 
 @asynccontextmanager
@@ -50,6 +52,12 @@ async def lifespan(app: FastAPI):
     await telegram_service.start()
     logger.info("Telegram bot started")
     
+    # Periodically reconcile local session rows with live Devin statuses
+    global session_sync_task
+    session_sync_task = asyncio.create_task(
+        telegram_service.session_sync.run_forever(settings.session_sync_interval_seconds)
+    )
+    
     # Inject scheduler into scheduled routes
     scheduled_routes.set_task_scheduler(task_scheduler)
     
@@ -59,6 +67,8 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down DevinBot backend...")
     
     # Stop services
+    if session_sync_task:
+        session_sync_task.cancel()
     if task_scheduler:
         task_scheduler.stop()
     if telegram_service:

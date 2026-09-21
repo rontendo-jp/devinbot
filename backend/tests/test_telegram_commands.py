@@ -27,6 +27,7 @@ class Harness:
         self.db_factory = db_factory
         self.svc = TelegramBotService()
         self.svc.devin_client = MagicMock()
+        self.svc.session_sync.devin_client = self.svc.devin_client
         self.svc.devin_client.get_session = AsyncMock(return_value={"status": "running", "status_detail": "working"})
         self.svc.devin_client.terminate_session = AsyncMock(return_value={})
         self.svc.devin_client.create_session = AsyncMock(return_value={"session_id": "cafebabe12345678"})
@@ -37,6 +38,7 @@ class Harness:
             self.replies.append((scope, text))
 
         self.svc._reply = capture
+        self.svc.send_message_to_topic = AsyncMock(return_value={})
 
     def repo(self, path, chat_id=MAIN_CHAT, topic_id=None, enabled=True):
         with self.db_factory() as db:
@@ -255,3 +257,14 @@ async def test_help_and_usage_are_valid_telegram_html(h):
     for text in (h.text, telegram_bot.CREATE_USAGE):
         tags = re.findall(r"<(/?)(\w+)", text)
         assert {name for _, name in tags} <= {"b", "i", "a", "code", "pre"}
+
+
+async def test_status_final_transition_notifies_repo_topic(h):
+    r = h.repo("o/r", topic_id="42")
+    h.session(r, "aaaaaaaa11111111")
+    h.svc.devin_client.get_session = AsyncMock(return_value={"status": "suspended", "status_detail": "inactivity"})
+    await h.svc.status_command(update(), ctx())
+    h.svc.send_message_to_topic.assert_awaited_once()
+    chat_id, topic_id, text = h.svc.send_message_to_topic.await_args.args
+    assert (chat_id, topic_id) == (MAIN_CHAT, "42")
+    assert "Session completed" in text and "suspended (inactivity)" in text

@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.database import Session as DBSession, Repository, SessionStatus, TriggerType, DevinMode
 from app.services.devin_client import DevinClient
+from app.services.session_sync import ACTIVE_STATUSES, SessionSyncService
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +26,6 @@ DEVIN_SESSION_URL = "https://app.devin.ai/sessions/{}"
 
 CREATE_USAGE = "❌ Usage: /create [owner/repo] [--mode normal|fast|lite|ultra|fusion] &lt;prompt&gt;"
 
-# Devin API status -> local status for sessions that are no longer running
-FINAL_STATUS_MAP = {
-    "finished": SessionStatus.COMPLETED,
-    "completed": SessionStatus.COMPLETED,
-    "terminated": SessionStatus.CANCELLED,
-    "cancelled": SessionStatus.CANCELLED,
-    "failed": SessionStatus.FAILED,
-    "error": SessionStatus.FAILED,
-}
-
 
 class TelegramBotService:
     """Service for Telegram bot integration."""
@@ -45,6 +36,7 @@ class TelegramBotService:
         self.bot = Bot(token=self.bot_token)
         self.application = None
         self.devin_client = DevinClient()
+        self.session_sync = SessionSyncService(self.devin_client, notifier=self.notify_session_final)
     
     async def start(self):
         """Start the Telegram bot application."""
@@ -280,35 +272,21 @@ class TelegramBotService:
         short = escape(devin_session_id[:8])
         return f'<a href="{DEVIN_SESSION_URL.format(escape(devin_session_id))}">{short}</a>'
     
-    async def _live_status(self, session: DBSession) -> Optional[Dict[str, Any]]:
-        if not session.devin_session_id:
-            return None
-        try:
-            return await self.devin_client.get_session(session.devin_session_id)
-        except Exception as e:
-            logger.warning(f"Could not refresh session {session.devin_session_id}: {e}")
-            return None
-    
-    async def _refresh_sessions(self, db, sessions: List[DBSession]) -> List[str]:
-        """Fetch live statuses concurrently, persist any final status reached, return status texts."""
-        live_results = await asyncio.gather(*(self._live_status(s) for s in sessions))
-        texts = []
-        changed = False
-        for session, live in zip(sessions, live_results):
-            if not live:
-                texts.append(session.status.value)
-                continue
-            live_status = str(live.get("status") or session.status.value).lower()
-            final = FINAL_STATUS_MAP.get(live_status)
-            if final and session.status != final:
-                session.status = final
-                session.completed_at = datetime.utcnow()
-                changed = True
-            detail = live.get("status_detail")
-            texts.append(f"{live_status} ({detail})" if detail and detail != live_status else live_status)
-        if changed:
-            db.commit()
-        return texts
+    async def notify_session_final(self, session: DBSession, live_status: str) -> None:
+        """Post to the repository's chat/topic when a session reaches a final state."""
+        repository = session.repository
+        emoji = {
+            SessionStatus.COMPLETED: "✅",
+            SessionStatus.FAILED: "❌",
+            SessionStatus.CANCELLED: "🛑",
+        }.get(session.status, "❓")
+        message = (
+            f"{emoji} <b>Session {escape(session.status.value)}</b> — {self._session_link(session.devin_session_id)}\n"
+            f"<b>Repository:</b> {escape(repository.github_repo_path)}\n"
+            f"<b>Trigger:</b> {escape(session.trigger_type.value)}\n"
+            f"<b>Devin status:</b> {escape(live_status)}"
+        )
+        await self.send_message_to_topic(repository.telegram_chat_id, repository.telegram_topic_id, message)
     
     # ------------------------------------------------------------------
     # Command handlers
@@ -326,7 +304,7 @@ class TelegramBotService:
                 db.query(DBSession)
                 .filter(
                     DBSession.repository_id.in_(repo_ids),
-                    DBSession.status.in_([SessionStatus.PENDING, SessionStatus.RUNNING]),
+                    DBSession.status.in_(ACTIVE_STATUSES),
                 )
                 .order_by(DBSession.created_at.desc())
                 .limit(10)
@@ -338,7 +316,7 @@ class TelegramBotService:
                 return
             
             lines = [f"🔄 <b>Active sessions ({len(sessions)})</b>", ""]
-            statuses = await self._refresh_sessions(db, sessions)
+            statuses = await self.session_sync.refresh(db, sessions)
             for s, live_status in zip(sessions, statuses):
                 age = datetime.utcnow() - s.created_at
                 lines.append(
