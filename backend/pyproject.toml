@@ -1,0 +1,34 @@
+[project]
+name = "devinbot-backend"
+version = "1.0.0"
+description = "DevinBot FastAPI backend"
+requires-python = ">=3.11,<4.0"
+
+[tool.poetry]
+name = "devinbot-backend"
+version = "1.0.0"
+description = "DevinBot FastAPI backend"
+authors = ["rontendo-jp"]
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "0.104.1"
+uvicorn = { extras = ["standard"], version = "0.24.0" }
+sqlalchemy = "2.0.23"
+alembic = "1.12.1"
+psycopg2-binary = "2.9.9"
+httpx = "0.25.2"
+python-telegram-bot = "20.7"
+python-dotenv = "1.0.0"
+pydantic = "2.5.0"
+pydantic-settings = "2.1.0"
+apscheduler = "3.10.4"
+websockets = "12.0"
+python-jose = { extras = ["cryptography"], version = "3.3.0" }
+passlib = { extras = ["bcrypt"], version = "1.7.4" }
+python-multipart = "0.0.6"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
