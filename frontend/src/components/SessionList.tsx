@@ -26,11 +26,12 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
 
   useEffect(() => {
     fetchSessions();
+    const interval = setInterval(fetchSessions, config.pollIntervalMs);
+    return () => clearInterval(interval);
   }, [selectedRepository, filter]);
 
   const fetchSessions = async () => {
     try {
-      setLoading(true);
       const params = new URLSearchParams();
       if (selectedRepository) params.append('repository_id', selectedRepository);
       if (filter !== 'all') params.append('status', filter);
@@ -99,7 +100,7 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
         </div>
       )}
 
-      {loading ? (
+      {loading && sessions.length === 0 ? (
         <div className="p-12 text-center">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <p className="mt-2 text-gray-600 text-sm">Loading sessions...</p>

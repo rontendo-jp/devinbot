@@ -18,13 +18,12 @@ export default function Home() {
 
   useEffect(() => {
     fetchMetrics();
-    const interval = setInterval(fetchMetrics, 30000); // Refresh every 30 seconds
+    const interval = setInterval(fetchMetrics, config.pollIntervalMs);
     return () => clearInterval(interval);
   }, [selectedRepository, timeRange]);
 
   const fetchMetrics = async () => {
     try {
-      setLoading(true);
       const params = new URLSearchParams();
       if (selectedRepository) params.append('repository_id', selectedRepository);
       params.append('time_range', timeRange);
