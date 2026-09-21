@@ -136,7 +136,7 @@ class DevinClient:
         async with httpx.AsyncClient() as client:
             response = await client.delete(url, headers=self.headers)
             response.raise_for_status()
-            return response.json()
+            return response.json() if response.content else {}
     
     async def trigger_pr_review(self, pr_url: str) -> Dict[str, Any]:
         """
