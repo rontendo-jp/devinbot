@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { config } from '@/config';
+import { usePolling } from '@/hooks/usePolling';
 
 interface Session {
   id: string;
@@ -24,29 +25,34 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
 
-  useEffect(() => {
-    fetchSessions();
-  }, [selectedRepository, filter]);
+  const hasActiveSessions = sessions.some(
+    (s) => s.status === 'running' || s.status === 'pending',
+  );
 
-  const fetchSessions = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (selectedRepository) params.append('repository_id', selectedRepository);
-      if (filter !== 'all') params.append('status', filter);
+  usePolling(
+    async (signal, isInitial) => {
+      try {
+        if (isInitial) setLoading(true);
+        const params = new URLSearchParams();
+        if (selectedRepository) params.append('repository_id', selectedRepository);
+        if (filter !== 'all') params.append('status', filter);
 
-      const response = await fetch(`${config.apiUrl}/api/sessions/?${params}`);
-      if (!response.ok) throw new Error('Failed to fetch sessions');
-      
-      const data = await response.json();
-      setSessions(data.sessions);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  };
+        const response = await fetch(`${config.apiUrl}/api/sessions/?${params}`, { signal });
+        if (!response.ok) throw new Error('Failed to fetch sessions');
+
+        const data = await response.json();
+        setSessions(data.sessions);
+        setError(null);
+      } catch (err) {
+        if (signal.aborted) return;
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        if (!signal.aborted) setLoading(false);
+      }
+    },
+    hasActiveSessions ? config.activePollIntervalMs : config.idlePollIntervalMs,
+    [selectedRepository, filter],
+  );
 
   const getStatusColor = (status: string) => {
     const colors = {
