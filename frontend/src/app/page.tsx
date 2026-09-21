@@ -18,7 +18,7 @@ export default function Home() {
   const [timeRange, setTimeRange] = useState('24h');
   const [metrics, setMetrics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<TranslationKey | null>(null);
   
   const { metrics: realtimeMetrics, connected: wsConnected, error: wsError } = useWebSocket();
 
@@ -36,13 +36,14 @@ export default function Home() {
       params.append('time_range', timeRange);
 
       const response = await fetch(`${config.apiUrl}/api/metrics/?${params}`);
-      if (!response.ok) throw new Error(t('app.fetchMetricsFailed'));
+      if (!response.ok) throw new Error('Failed to fetch metrics');
       
       const data = await response.json();
       setMetrics(data);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('app.genericError'));
+      console.error('Error fetching metrics:', err);
+      setError('app.fetchMetricsFailed');
     } finally {
       setLoading(false);
     }
@@ -52,16 +53,16 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">{t('app.title')}</h1>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold text-gray-900 break-words">{t('app.title')}</h1>
             <p className="text-gray-600">{t('app.subtitle')}</p>
           </div>
           <div className="flex items-center gap-4">
             <LanguageSelector />
             <div className="flex items-center gap-2">
               <div className={`w-3 h-3 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-gray-600 whitespace-nowrap">
                 {wsConnected ? t('app.live') : t('app.offline')}
               </span>
             </div>
@@ -95,7 +96,7 @@ export default function Home() {
         {/* Error State */}
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-800">{error}</p>
+            <p className="text-red-800">{t(error)}</p>
           </div>
         )}
 

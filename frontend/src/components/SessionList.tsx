@@ -26,7 +26,7 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
   const { locale, t } = useLocale();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<TranslationKey | null>(null);
   const [filter, setFilter] = useState<string>('all');
 
   useEffect(() => {
@@ -41,13 +41,14 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
       if (filter !== 'all') params.append('status', filter);
 
       const response = await fetch(`${config.apiUrl}/api/sessions/?${params}`);
-      if (!response.ok) throw new Error(t('sessions.fetchFailed'));
+      if (!response.ok) throw new Error('Failed to fetch sessions');
       
       const data = await response.json();
       setSessions(data.sessions);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('app.genericError'));
+      console.error('Error fetching sessions:', err);
+      setError('sessions.fetchFailed');
     } finally {
       setLoading(false);
     }
@@ -105,7 +106,7 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
 
       {error && (
         <div className="p-4 bg-red-50 border-b border-red-200">
-          <p className="text-red-800 text-sm">{error}</p>
+          <p className="text-red-800 text-sm">{t(error)}</p>
         </div>
       )}
 
