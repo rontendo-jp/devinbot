@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import MetricsCard from '@/components/MetricsCard';
 import SessionList from '@/components/SessionList';
 import RepositorySelector from '@/components/RepositorySelector';
 import { config } from '@/config';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { usePolling } from '@/hooks/usePolling';
 
 export default function Home() {
   const [selectedRepository, setSelectedRepository] = useState<string | null>(null);
@@ -16,30 +17,30 @@ export default function Home() {
   
   const { metrics: realtimeMetrics, connected: wsConnected, error: wsError } = useWebSocket();
 
-  useEffect(() => {
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, config.pollIntervalMs);
-    return () => clearInterval(interval);
-  }, [selectedRepository, timeRange]);
+  usePolling(
+    async (signal, isInitial) => {
+      try {
+        if (isInitial) setLoading(true);
+        const params = new URLSearchParams();
+        if (selectedRepository) params.append('repository_id', selectedRepository);
+        params.append('time_range', timeRange);
 
-  const fetchMetrics = async () => {
-    try {
-      const params = new URLSearchParams();
-      if (selectedRepository) params.append('repository_id', selectedRepository);
-      params.append('time_range', timeRange);
+        const response = await fetch(`${config.apiUrl}/api/metrics/?${params}`, { signal });
+        if (!response.ok) throw new Error('Failed to fetch metrics');
 
-      const response = await fetch(`${config.apiUrl}/api/metrics/?${params}`);
-      if (!response.ok) throw new Error('Failed to fetch metrics');
-      
-      const data = await response.json();
-      setMetrics(data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  };
+        const data = await response.json();
+        setMetrics(data);
+        setError(null);
+      } catch (err) {
+        if (signal.aborted) return;
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        if (!signal.aborted) setLoading(false);
+      }
+    },
+    config.metricsPollIntervalMs,
+    [selectedRepository, timeRange],
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
