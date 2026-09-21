@@ -205,28 +205,29 @@ class DevinClient:
     
     async def get_consumption_analytics(
         self,
-        time_before: Optional[str] = None,
-        time_after: Optional[str] = None,
+        start_date: str,
+        end_date: str,
+        product: str = "agent",
         page_cursor: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Get consumption analytics from Analytics API v2.
         
         Args:
-            time_before: Optional ISO timestamp for time range end
-            time_after: Optional ISO timestamp for time range start
+            start_date: Start of range, YYYY-MM-DD
+            end_date: End of range, YYYY-MM-DD
+            product: Product to report on (API currently supports "agent")
             page_cursor: Optional cursor for pagination
             
         Returns:
             Consumption analytics data
         """
         url = f"{self.analytics_url}/analytics/consumption"
-        params = {}
-        
-        if time_before:
-            params["time_before"] = time_before
-        if time_after:
-            params["time_after"] = time_after
+        params = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "product": product,
+        }
         if page_cursor:
             params["page_cursor"] = page_cursor
         
