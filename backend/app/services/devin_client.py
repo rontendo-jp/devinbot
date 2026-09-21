@@ -95,6 +95,19 @@ class DevinClient:
             response.raise_for_status()
             return response.json()
     
+    async def get_last_devin_message(self, session_id: str) -> Optional[str]:
+        """Text of the most recent message Devin (not the user) posted in the session, if any."""
+        url = f"{self.base_url}/organizations/{self.org_id}/sessions/{session_id}/messages"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=self.headers)
+            response.raise_for_status()
+            items = response.json().get("items", [])
+        for item in reversed(items):
+            if item.get("source") != "user" and item.get("message"):
+                return str(item["message"])
+        return None
+
     async def list_sessions(
         self,
         limit: int = 100,

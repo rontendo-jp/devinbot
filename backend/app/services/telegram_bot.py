@@ -281,8 +281,10 @@ class TelegramBotService:
         """Post to the repository's chat/topic whenever Devin's reported status changes."""
         repository = session.repository
         current = session_status_text(session)
+        last_message = None
         if session.devin_status_detail in NEEDS_USER_DETAILS:
             emoji, headline = "⚠️", "Devin needs your input"
+            last_message = await self._last_devin_message(session.devin_session_id)
         else:
             emoji = {
                 SessionStatus.COMPLETED: "✅",
@@ -296,7 +298,20 @@ class TelegramBotService:
             f"<b>Trigger:</b> {escape(session.trigger_type.value)}\n"
             f"<b>Devin status:</b> {escape(previous)} → {escape(current)}"
         )
+        if last_message:
+            message += f"\n<b>Devin says:</b> <i>{escape(last_message)}</i>"
         await self.send_message_to_topic(repository.telegram_chat_id, repository.telegram_topic_id, message)
+
+    async def _last_devin_message(self, devin_session_id: str, limit: int = 400) -> Optional[str]:
+        try:
+            text = await self.devin_client.get_last_devin_message(devin_session_id)
+        except Exception as e:
+            logger.warning(f"Could not fetch last message of {devin_session_id}: {e}")
+            return None
+        if not text:
+            return None
+        text = " ".join(text.split())
+        return text if len(text) <= limit else text[: limit - 1] + "…"
     
     # ------------------------------------------------------------------
     # Command handlers
