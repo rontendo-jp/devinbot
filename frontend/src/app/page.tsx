@@ -1,0 +1,138 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import MetricsCard from '@/components/MetricsCard';
+import SessionList from '@/components/SessionList';
+import RepositorySelector from '@/components/RepositorySelector';
+import { config } from '@/config';
+import { useWebSocket } from '@/hooks/useWebSocket';
+
+export default function Home() {
+  const [selectedRepository, setSelectedRepository] = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState('24h');
+  const [metrics, setMetrics] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  const { metrics: realtimeMetrics, connected: wsConnected, error: wsError } = useWebSocket();
+
+  useEffect(() => {
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 30000); // Refresh every 30 seconds
+    return () => clearInterval(interval);
+  }, [selectedRepository, timeRange]);
+
+  const fetchMetrics = async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (selectedRepository) params.append('repository_id', selectedRepository);
+      params.append('time_range', timeRange);
+
+      const response = await fetch(`${config.apiUrl}/api/metrics/?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch metrics');
+      
+      const data = await response.json();
+      setMetrics(data);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">DevinBot Dashboard</h1>
+            <p className="text-gray-600">Real-time observability for your Devin sessions</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className={`w-3 h-3 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className="text-sm text-gray-600">
+              {wsConnected ? 'Live' : 'Offline'}
+            </span>
+          </div>
+        </div>
+
+        {/* Controls */}
+        <div className="mb-6 flex flex-wrap gap-4">
+          <RepositorySelector
+            selectedRepository={selectedRepository}
+            onSelectRepository={setSelectedRepository}
+          />
+          
+          <div className="flex gap-2">
+            {['1h', '24h', '7d', '30d'].map((range) => (
+              <button
+                key={range}
+                onClick={() => setTimeRange(range)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  timeRange === range
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Error State */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-800">{error}</p>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {loading && !metrics && (
+          <div className="text-center py-12">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <p className="mt-2 text-gray-600">Loading metrics...</p>
+          </div>
+        )}
+
+        {/* Metrics Grid */}
+        {metrics && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <MetricsCard
+              title="Total Sessions"
+              value={metrics.session_metrics.total_sessions}
+              trend="+12%"
+              positive
+            />
+            <MetricsCard
+              title="Active Sessions"
+              value={realtimeMetrics?.active_sessions || metrics.session_metrics.active_sessions}
+              trend="+2"
+              positive
+            />
+            <MetricsCard
+              title="Success Rate"
+              value={`${metrics.session_metrics.success_rate}%`}
+              trend="+5%"
+              positive
+            />
+            <MetricsCard
+              title="Cost (ACUs)"
+              value={metrics.cost_metrics.total_acus.toFixed(2)}
+              trend="-8%"
+              positive={false}
+            />
+          </div>
+        )}
+
+        {/* Session List */}
+        <SessionList
+          selectedRepository={selectedRepository}
+        />
+      </div>
+    </div>
+  );
+}
