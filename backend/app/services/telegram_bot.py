@@ -1,4 +1,5 @@
 import logging
+from html import escape
 from typing import Optional, Dict, Any
 from telegram import Update, Bot, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackContext
@@ -46,7 +47,7 @@ class TelegramBotService:
         self,
         chat_id: str,
         text: str,
-        parse_mode: Optional[str] = "Markdown",
+        parse_mode: Optional[str] = "HTML",
         reply_markup: Optional[InlineKeyboardMarkup] = None
     ) -> Dict[str, Any]:
         """
@@ -78,7 +79,7 @@ class TelegramBotService:
         chat_id: str,
         topic_id: Optional[str],
         text: str,
-        parse_mode: Optional[str] = "Markdown"
+        parse_mode: Optional[str] = "HTML"
     ) -> Dict[str, Any]:
         """
         Send a message to a specific topic within a Telegram chat.
@@ -139,11 +140,11 @@ class TelegramBotService:
         }.get(status, "❓")
         
         message = f"""
-{status_emoji} *Session {status}*
+{status_emoji} <b>Session {escape(str(status))}</b>
 
-*Repository:* {repo_name}
-*Session ID:* {session_id}
-*Trigger:* {trigger_type}
+<b>Repository:</b> {escape(str(repo_name))}
+<b>Session ID:</b> {escape(str(session_id))}
+<b>Trigger:</b> {escape(str(trigger_type))}
 """
         
         if status == "running":
@@ -152,7 +153,7 @@ class TelegramBotService:
             message += "\n🎉 Task completed successfully!"
         elif status == "failed":
             error_msg = session_data.get("error_message", "Unknown error")
-            message += f"\n⚠️ Error: {error_msg}"
+            message += f"\n⚠️ Error: {escape(str(error_msg))}"
         
         await self.send_message_to_topic(chat_id, topic_id, message)
     
@@ -172,12 +173,12 @@ class TelegramBotService:
             error_message: Error message
             context: Optional context information
         """
-        message = f"🚨 *Error occurred*\n\n{error_message}"
+        message = f"🚨 <b>Error occurred</b>\n\n{escape(error_message)}"
         
         if context:
-            message += "\n\n*Context:*"
+            message += "\n\n<b>Context:</b>"
             for key, value in context.items():
-                message += f"\n• {key}: {value}"
+                message += f"\n• {escape(str(key))}: {escape(str(value))}"
         
         await self.send_message_to_topic(chat_id, topic_id, message)
     
@@ -194,12 +195,12 @@ class TelegramBotService:
         args = context.args
         
         if not args:
-            await self.send_message(chat_id, "❌ Usage: /cancel <session_id>")
+            await self.send_message(chat_id, "❌ Usage: /cancel &lt;session_id&gt;")
             return
         
         session_id = args[0]
         # This will be connected to the actual session cancellation logic
-        await self.send_message(chat_id, f"🛑 Cancelling session {session_id}...")
+        await self.send_message(chat_id, f"🛑 Cancelling session {escape(session_id)}...")
     
     async def create_command(self, update: Update, context: CallbackContext):
         """Handle /create command."""
@@ -207,12 +208,12 @@ class TelegramBotService:
         args = context.args
         
         if not args:
-            await self.send_message(chat_id, "❌ Usage: /create <prompt>")
+            await self.send_message(chat_id, "❌ Usage: /create &lt;prompt&gt;")
             return
         
         prompt = " ".join(args)
         # This will be connected to the actual session creation logic
-        await self.send_message(chat_id, f"🚀 Creating session with prompt: {prompt}")
+        await self.send_message(chat_id, f"🚀 Creating session with prompt: {escape(prompt)}")
     
     async def metrics_command(self, update: Update, context: CallbackContext):
         """Handle /metrics command."""
@@ -224,11 +225,11 @@ class TelegramBotService:
         """Handle /help command."""
         chat_id = update.effective_chat.id
         help_text = """
-*DevinBot Commands*
+<b>DevinBot Commands</b>
 
 /status - Show active sessions
-/cancel <session_id> - Cancel a running session
-/create <prompt> - Create a new session
+/cancel &lt;session_id&gt; - Cancel a running session
+/create &lt;prompt&gt; - Create a new session
 /metrics - Show current metrics
 /help - Show this help message
 """
