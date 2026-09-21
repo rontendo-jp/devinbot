@@ -177,8 +177,7 @@ async def github_webhook(
         raise HTTPException(status_code=401, detail="Invalid signature")
     
     # Parse event
-    headers = dict(request.headers)
-    event_data = webhook_handler.parse_event(headers, body)
+    event_data = webhook_handler.parse_event(request.headers, body)
     
     event_type = event_data["event_type"]
     payload = event_data["payload"]

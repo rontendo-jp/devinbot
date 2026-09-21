@@ -2,7 +2,7 @@ import hmac
 import hashlib
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Mapping, Optional
 from fastapi import HTTPException, Request
 from app.core.config import settings
 
@@ -55,12 +55,12 @@ class GitHubWebhookHandler:
         
         return True
     
-    def parse_event(self, headers: Dict[str, str], body: bytes) -> Dict[str, Any]:
+    def parse_event(self, headers: Mapping[str, str], body: bytes) -> Dict[str, Any]:
         """
         Parse GitHub webhook event.
         
         Args:
-            headers: Request headers
+            headers: Request headers (case-insensitive mapping, e.g. starlette Headers)
             body: Request body
             
         Returns:
