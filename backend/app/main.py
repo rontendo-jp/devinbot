@@ -18,6 +18,8 @@ logging.basicConfig(
     level=getattr(logging, settings.log_level),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+# httpx logs full request URLs, which include the Telegram bot token
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Global services

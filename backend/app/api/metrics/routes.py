@@ -86,26 +86,14 @@ async def get_metrics(
     }
 
 
-async def get_cost_consumption(time_before: datetime, time_after: datetime) -> dict:
+async def get_cost_consumption(start: datetime, end: datetime) -> dict:
     """
-    Get cost consumption data from Devin Analytics API.
-    
-    Args:
-        time_before: Start of time range
-        time_after: End of time range
-        
-    Returns:
-        Cost consumption metrics
+    Get cost consumption data from Devin Analytics API for [start, end].
     """
     try:
-        # Convert to ISO format strings
-        time_before_str = time_before.isoformat()
-        time_after_str = time_after.isoformat()
-        
-        # Get consumption data
         consumption_data = await devin_client.get_consumption_analytics(
-            time_before=time_before_str,
-            time_after=time_after_str
+            start_date=start.strftime("%Y-%m-%d"),
+            end_date=end.strftime("%Y-%m-%d")
         )
         
         # Extract relevant metrics
