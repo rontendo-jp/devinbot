@@ -1,6 +1,6 @@
 import logging
 from typing import Optional, Dict, Any
-from telegram import Update, Bot
+from telegram import Update, Bot, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackContext
 from app.core.config import settings
 import asyncio
@@ -31,11 +31,13 @@ class TelegramBotService:
         # Start the bot
         await self.application.initialize()
         await self.application.start()
+        await self.application.updater.start_polling()
         logger.info("Telegram bot started")
     
     async def stop(self):
         """Stop the Telegram bot application."""
         if self.application:
+            await self.application.updater.stop()
             await self.application.stop()
             await self.application.shutdown()
             logger.info("Telegram bot stopped")

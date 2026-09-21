@@ -1,19 +1,19 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
     # Devin API
-    devin_api_key: str
-    devin_org_id: str
+    devin_api_key: str = ""
+    devin_org_id: str = ""
     
     # GitHub
-    github_webhook_secret: str
-    github_token: str
+    github_webhook_secret: str = ""
+    github_token: str = ""
     
     # Telegram
-    telegram_bot_token: str
-    telegram_chat_id: str
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
     
     # Database
     database_url: str = "postgresql://user:password@localhost/devinbot"
@@ -23,7 +23,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     
     # CORS
-    cors_origins: list = ["http://localhost:3000"]
+    cors_origins: str = "http://localhost:3000"
+
+    @property
+    def cors_origin_list(self) -> List[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
     
     class Config:
         env_file = ".env"
