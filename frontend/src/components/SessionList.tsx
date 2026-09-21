@@ -9,6 +9,8 @@ interface Session {
   repository_id: string;
   trigger_type: string;
   status: string;
+  devin_status: string | null;
+  devin_status_detail: string | null;
   prompt: string;
   created_at: string;
   completed_at: string | null;
@@ -119,6 +121,19 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(session.status)}`}>
                       {session.status}
                     </span>
+                    {session.devin_status && (
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          ['waiting_for_user', 'waiting_for_approval'].includes(session.devin_status_detail ?? '')
+                            ? 'bg-orange-100 text-orange-800'
+                            : 'bg-gray-100 text-gray-700'
+                        }`}
+                        title="Status reported by Devin"
+                      >
+                        {session.devin_status}
+                        {session.devin_status_detail ? ` / ${session.devin_status_detail}` : ''}
+                      </span>
+                    )}
                     <span className="text-xs text-gray-500">
                       {new Date(session.created_at).toLocaleString()}
                     </span>

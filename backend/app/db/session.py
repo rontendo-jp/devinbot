@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from app.core.config import settings
 from app.models.database import Base
@@ -26,3 +26,10 @@ def init_db():
     Initialize database tables.
     """
     Base.metadata.create_all(bind=engine)
+    # create_all does not alter existing tables; add columns introduced after the initial schema.
+    with engine.begin() as conn:
+        for column, ddl in (
+            ("devin_status", "VARCHAR(50)"),
+            ("devin_status_detail", "VARCHAR(100)"),
+        ):
+            conn.execute(text(f"ALTER TABLE sessions ADD COLUMN IF NOT EXISTS {column} {ddl}"))

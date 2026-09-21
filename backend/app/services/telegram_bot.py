@@ -10,7 +10,12 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.database import Session as DBSession, Repository, SessionStatus, TriggerType, DevinMode
 from app.services.devin_client import DevinClient
-from app.services.session_sync import ACTIVE_STATUSES, SessionSyncService
+from app.services.session_sync import (
+    ACTIVE_STATUSES,
+    NEEDS_USER_DETAILS,
+    SessionSyncService,
+    session_status_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +41,7 @@ class TelegramBotService:
         self.bot = Bot(token=self.bot_token)
         self.application = None
         self.devin_client = DevinClient()
-        self.session_sync = SessionSyncService(self.devin_client, notifier=self.notify_session_final)
+        self.session_sync = SessionSyncService(self.devin_client, notifier=self.notify_session_status_changed)
     
     async def start(self):
         """Start the Telegram bot application."""
@@ -272,19 +277,24 @@ class TelegramBotService:
         short = escape(devin_session_id[:8])
         return f'<a href="{DEVIN_SESSION_URL.format(escape(devin_session_id))}">{short}</a>'
     
-    async def notify_session_final(self, session: DBSession, live_status: str) -> None:
-        """Post to the repository's chat/topic when a session reaches a final state."""
+    async def notify_session_status_changed(self, session: DBSession, previous: str) -> None:
+        """Post to the repository's chat/topic whenever Devin's reported status changes."""
         repository = session.repository
-        emoji = {
-            SessionStatus.COMPLETED: "✅",
-            SessionStatus.FAILED: "❌",
-            SessionStatus.CANCELLED: "🛑",
-        }.get(session.status, "❓")
+        current = session_status_text(session)
+        if session.devin_status_detail in NEEDS_USER_DETAILS:
+            emoji, headline = "⚠️", "Devin needs your input"
+        else:
+            emoji = {
+                SessionStatus.COMPLETED: "✅",
+                SessionStatus.FAILED: "❌",
+                SessionStatus.CANCELLED: "🛑",
+            }.get(session.status, "🔄")
+            headline = f"Session {current}"
         message = (
-            f"{emoji} <b>Session {escape(session.status.value)}</b> — {self._session_link(session.devin_session_id)}\n"
+            f"{emoji} <b>{escape(headline)}</b> — {self._session_link(session.devin_session_id)}\n"
             f"<b>Repository:</b> {escape(repository.github_repo_path)}\n"
             f"<b>Trigger:</b> {escape(session.trigger_type.value)}\n"
-            f"<b>Devin status:</b> {escape(live_status)}"
+            f"<b>Devin status:</b> {escape(previous)} → {escape(current)}"
         )
         await self.send_message_to_topic(repository.telegram_chat_id, repository.telegram_topic_id, message)
     

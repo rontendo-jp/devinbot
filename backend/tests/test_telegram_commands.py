@@ -103,7 +103,7 @@ async def test_status_scoped_to_topic_repo(h):
     h.session(r2, "bbbbbbbb22222222")
     await h.svc.status_command(update(topic_id="11"), ctx())
     assert "o/one" in h.text and "o/two" not in h.text
-    assert "running (working)" in h.text
+    assert "running / working" in h.text
 
 
 async def test_status_main_chat_sees_all_repos(h):
@@ -267,4 +267,14 @@ async def test_status_final_transition_notifies_repo_topic(h):
     h.svc.send_message_to_topic.assert_awaited_once()
     chat_id, topic_id, text = h.svc.send_message_to_topic.await_args.args
     assert (chat_id, topic_id) == (MAIN_CHAT, "42")
-    assert "Session completed" in text and "suspended (inactivity)" in text
+    assert "Session suspended / inactivity" in text and "running → suspended / inactivity" in text
+
+
+async def test_status_waiting_for_user_alerts_repo_topic(h):
+    r = h.repo("o/r", topic_id="42")
+    h.session(r, "aaaaaaaa11111111")
+    h.svc.devin_client.get_session = AsyncMock(return_value={"status": "running", "status_detail": "waiting_for_user"})
+    await h.svc.status_command(update(), ctx())
+    chat_id, topic_id, text = h.svc.send_message_to_topic.await_args.args
+    assert (chat_id, topic_id) == (MAIN_CHAT, "42")
+    assert "Devin needs your input" in text and "running / waiting_for_user" in text
