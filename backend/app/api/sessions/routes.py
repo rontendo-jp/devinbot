@@ -130,7 +130,7 @@ async def create_session(
             title=f"Manual session: {repository.github_repo_path}"
         )
         
-        devin_session_id = session_response.get("id")
+        devin_session_id = session_response.get("session_id")
         
         # Create session record
         new_session = DBSession(
