@@ -26,5 +26,7 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      - key: ADMIN_API_TOKEN
+        sync: false
       - key: LOG_LEVEL
         value: INFO
