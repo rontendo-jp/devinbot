@@ -289,7 +289,7 @@ class TelegramBotService:
         last_message = None
         if session.devin_status_detail in NEEDS_USER_DETAILS:
             emoji, headline = "⚠️", "Devin needs your input"
-            last_message = await self._last_devin_message(session.devin_session_id)
+            last_message = self._last_devin_message(session)
         else:
             emoji = {
                 SessionStatus.COMPLETED: "✅",
@@ -355,12 +355,10 @@ class TelegramBotService:
             return None
         return matches[0]
 
-    async def _last_devin_message(self, devin_session_id: str, limit: int = 400) -> Optional[str]:
-        try:
-            text = await self.devin_client.get_last_devin_message(devin_session_id)
-        except Exception as e:
-            logger.warning(f"Could not fetch last message of {devin_session_id}: {e}")
-            return None
+    @staticmethod
+    def _last_devin_message(session: DBSession, limit: int = 400) -> Optional[str]:
+        """Devin's last message as persisted by the sync loop, collapsed to one line for Telegram."""
+        text = session.last_devin_message
         if not text:
             return None
         text = " ".join(text.split())

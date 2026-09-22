@@ -87,6 +87,20 @@ class SessionSyncService:
             logger.warning(f"Could not refresh session {session.devin_session_id}: {e}")
             return None
 
+    @staticmethod
+    def _message_may_have_changed(session: DBSession, live: Dict) -> bool:
+        status, detail = live_pair(live)
+        return status == "running" or (status, detail) != (session.devin_status or "", session.devin_status_detail or "")
+
+    async def fetch_last_message(self, session: DBSession) -> Optional[str]:
+        if not session.devin_session_id:
+            return None
+        try:
+            return await self.devin_client.get_last_devin_message(session.devin_session_id)
+        except Exception as e:
+            logger.warning(f"Could not fetch last message of {session.devin_session_id}: {e}")
+            return None
+
     async def refresh(self, db, sessions: List[DBSession]) -> List[str]:
         """
         Fetch live statuses concurrently and persist them as-is.
@@ -99,10 +113,19 @@ class SessionSyncService:
     async def _refresh(self, db, sessions: List[DBSession]) -> List[str]:
         db.expire_all()
         live_results = await asyncio.gather(*(self.fetch_live(s) for s in sessions))
+        # Devin only posts new messages while running; for other states a message fetch is only
+        # worthwhile when the status just changed (to capture the final message, e.g. the PR link).
+        messages = await asyncio.gather(*(
+            self.fetch_last_message(s) if live and self._message_may_have_changed(s, live) else _none()
+            for s, live in zip(sessions, live_results)
+        ))
         texts: List[str] = []
         changed: List[Tuple[DBSession, str]] = []
         dirty = False
-        for session, live in zip(sessions, live_results):
+        for session, live, message in zip(sessions, live_results, messages):
+            if message and message != session.last_devin_message:
+                session.last_devin_message = message
+                dirty = True
             if not live:
                 texts.append(session_status_text(session))
                 continue
@@ -168,6 +191,10 @@ class SessionSyncService:
             except Exception as e:
                 logger.error(f"Session sync failed: {e}")
             await asyncio.sleep(interval_seconds)
+
+
+async def _none() -> None:
+    return None
 
 
 def session_status_text(session: DBSession) -> str:

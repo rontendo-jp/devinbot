@@ -8,12 +8,14 @@ import { usePolling } from '@/hooks/usePolling';
 
 interface Session {
   id: string;
-  devin_session_id: string;
+  devin_session_id: string | null;
+  session_url: string | null;
   repository_id: string;
   trigger_type: string;
   status: string;
   devin_status: string | null;
   devin_status_detail: string | null;
+  last_devin_message: string | null;
   prompt: string;
   created_at: string;
   completed_at: string | null;
@@ -25,12 +27,72 @@ interface SessionListProps {
 
 const FILTERS = ['all', 'running', 'completed', 'failed'] as const;
 
+const URL_PATTERN = /(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g;
+
+// The API emits UTC offsets, but older deployed backends sent naive UTC strings, which `Date`
+// would otherwise parse as local time. Keep the fallback until frontend/backend deploys are coupled.
+function parseTimestamp(value: string): Date {
+  return new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`);
+}
+
+function formatLocalTime(value: string, locale: string): string {
+  return parseTimestamp(value).toLocaleString(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+}
+
+// Devin messages are markdown; the dashboard has no renderer, so drop the most common markers.
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/```[a-z]*\n?/gi, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '$1 $2')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function linkify(text: string) {
+  return text.split(URL_PATTERN).map((part, i) =>
+    i % 2 === 1 ? (
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 hover:underline break-all"
+      >
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  );
+}
+
 export default function SessionList({ selectedRepository }: SessionListProps) {
   const { locale, t } = useLocale();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<TranslationKey | null>(null);
   const [filter, setFilter] = useState<string>('all');
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+
+  const toggleMessage = (id: string) =>
+    setExpandedMessages((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const hasActiveSessions = sessions.some(
     (s) => s.status === 'running' || s.status === 'pending',
@@ -152,15 +214,46 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
                       </span>
                     )}
                     <span className="text-xs text-gray-500">
-                      {new Date(session.created_at).toLocaleString(locale)}
+                      {formatLocalTime(session.created_at, locale)}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-900 font-medium mb-1 truncate">
-                    {session.prompt.substring(0, 100)}...
+                  <p className="text-sm text-gray-900 font-medium mb-1 truncate" title={session.prompt}>
+                    {session.prompt.length > 100 ? `${session.prompt.substring(0, 100)}...` : session.prompt}
                   </p>
-                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                  {session.last_devin_message && (
+                    <div className="mb-2 rounded-md bg-gray-50 border border-gray-200 p-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-medium text-gray-500">{t('sessions.devinSays')}</p>
+                        <button
+                          type="button"
+                          onClick={() => toggleMessage(session.id)}
+                          className="text-xs text-blue-600 hover:underline"
+                        >
+                          {expandedMessages.has(session.id) ? t('sessions.showLess') : t('sessions.showMore')}
+                        </button>
+                      </div>
+                      <p
+                        className={`text-sm text-gray-800 whitespace-pre-wrap break-words ${
+                          expandedMessages.has(session.id) ? '' : 'line-clamp-4'
+                        }`}
+                      >
+                        {linkify(stripMarkdown(session.last_devin_message))}
+                      </p>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500">
                     <span>{t('sessions.trigger')}: {session.trigger_type}</span>
-                    <span>{t('sessions.id')}: {session.devin_session_id?.substring(0, 8)}...</span>
+                    {session.session_url && (
+                      <a
+                        href={session.session_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                        title={session.devin_session_id ?? undefined}
+                      >
+                        {t('sessions.openInDevin')} ↗
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
