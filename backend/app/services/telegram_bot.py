@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from html import escape
 from typing import Optional, Dict, Any, List
 from telegram import Update, Bot, InlineKeyboardMarkup, Message
-from telegram.ext import Application, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext, filters
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.database import Session as DBSession, Repository, SessionStatus, TriggerType, DevinMode
@@ -31,7 +31,10 @@ class CommandScope:
 DEVIN_SESSION_URL = "https://app.devin.ai/sessions/{}"
 DEVIN_SESSION_URL_RE = re.compile(r"https://app\.devin\.ai/sessions/([0-9a-f]{8,})")
 
-REPLY_HINT = "Reply to this message with /done or /cancel to act on the session."
+REPLY_HINT = (
+    "Reply to this message to talk to Devin (e.g. \"Yes\" / \"No\" / instructions), "
+    "or with /done or /cancel to act on the session."
+)
 
 # Telegram rejects messages over 4096 chars; leave headroom for the header/footer.
 DEVIN_MESSAGE_LIMIT = 3000
@@ -62,6 +65,9 @@ class TelegramBotService:
         self.application.add_handler(CommandHandler("create", self.create_command))
         self.application.add_handler(CommandHandler("metrics", self.metrics_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND & filters.REPLY, self.reply_message)
+        )
         self.application.add_error_handler(self.error_handler)
         
         # Start the bot
@@ -500,6 +506,51 @@ class TelegramBotService:
                 f"Devin reports <code>{escape(session_status_text(session))}</code>; the session is left as is.",
             )
     
+    async def reply_message(self, update: Update, context: CallbackContext):
+        """Forward a plain-text reply to a session notification as a message to that Devin session."""
+        message = update.effective_message
+        text = (message.text or "").strip() if message else ""
+        if not text or not self._session_id_from_reply(message):
+            return
+        scope = await self._authorized(update)
+        if not scope:
+            return
+
+        with SessionLocal() as db:
+            session = await self._resolve_session(db, update, scope, [], "")
+            if not session:
+                return
+            if session.status == SessionStatus.CANCELLED:
+                await self._reply(
+                    scope,
+                    f"ℹ️ Session {self._session_link(session.devin_session_id)} was cancelled; "
+                    "start a new one with /create.",
+                )
+                return
+
+            try:
+                await self.devin_client.send_message(session.devin_session_id, text)
+            except Exception as e:
+                logger.error(f"Failed to message session {session.devin_session_id}: {e}")
+                await self._reply(scope, f"⚠️ Failed to send your reply to Devin: {escape(str(e))}")
+                return
+
+            if session.status not in ACTIVE_STATUSES:
+                # Devin resumes the session on message, so track it as active again.
+                session.status = SessionStatus.RUNNING
+                session.completed_at = None
+                db.commit()
+
+            await self._reply(
+                scope,
+                f"📨 Sent to Devin ({self._session_link(session.devin_session_id)}): "
+                f"<i>{escape(self._clip(text))}</i>",
+            )
+
+    @staticmethod
+    def _clip(text: str, limit: int = PROMPT_PREVIEW_LIMIT) -> str:
+        return text if len(text) <= limit else text[: limit - 1] + "…"
+
     async def create_command(self, update: Update, context: CallbackContext):
         """Handle /create [owner/repo] [--mode <mode>] <prompt>: start a new Devin session."""
         scope = await self._authorized(update)
@@ -647,6 +698,7 @@ class TelegramBotService:
 /cancel &lt;session_id&gt; - Cancel a running session
 /done &lt;session_id&gt; - Mark a session as completed (when Devin is just waiting for you)
   Tip: reply to a session notification with /done or /cancel — no ID needed
+  Reply to a session notification with plain text (e.g. "Yes") to send it to Devin
 /create [owner/repo] [--mode normal|fast|lite|ultra|fusion] &lt;prompt&gt; - Create a new session
 /metrics - Show current metrics
 /help - Show this help message

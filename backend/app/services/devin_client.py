@@ -107,6 +107,15 @@ class DevinClient:
                 return str(item["message"])
         return None
 
+    async def send_message(self, session_id: str, message: str) -> Dict[str, Any]:
+        """Post a user message to a session; Devin resumes the session if it was suspended."""
+        url = f"{self.base_url}/organizations/{self.org_id}/sessions/{session_id}/messages"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=self.headers, json={"message": message})
+            response.raise_for_status()
+            return response.json() if response.content else {}
+
     async def list_sessions(
         self,
         limit: int = 100,
