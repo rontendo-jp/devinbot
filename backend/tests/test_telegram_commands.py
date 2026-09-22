@@ -11,12 +11,13 @@ from app.services.telegram_bot import CommandScope, TelegramBotService
 MAIN_CHAT = "1000"
 
 
-def update(chat_id=MAIN_CHAT, topic_id=None, reply_to=None):
+def update(chat_id=MAIN_CHAT, topic_id=None, reply_to=None, text=""):
     return SimpleNamespace(
         effective_chat=SimpleNamespace(id=int(chat_id)),
         effective_message=SimpleNamespace(
             message_thread_id=int(topic_id) if topic_id else None,
             reply_to_message=reply_to,
+            text=text,
         ),
     )
 
@@ -44,6 +45,7 @@ class Harness:
         self.svc.devin_client.get_session = AsyncMock(return_value={"status": "running", "status_detail": "working"})
         self.svc.devin_client.get_last_devin_message = AsyncMock(return_value=None)
         self.svc.devin_client.terminate_session = AsyncMock(return_value={})
+        self.svc.devin_client.send_message = AsyncMock(return_value={})
         self.svc.devin_client.create_session = AsyncMock(return_value={"session_id": "cafebabe12345678"})
         self.svc.devin_client.get_consumption_analytics = AsyncMock(side_effect=RuntimeError("401"))
         self.replies = []
@@ -402,3 +404,46 @@ async def test_needs_input_alert_survives_message_fetch_failure(h):
     await h.svc.status_command(update(), ctx())
     text = h.svc.send_message_to_topic.await_args.args[2]
     assert "Devin needs your input" in text and "Devin says:" not in text
+
+
+# --- plain-text replies forwarded to Devin -----------------------------------
+
+async def test_text_reply_to_notification_is_sent_to_devin(h):
+    h.session(h.repo("o/r"), "abcdef0000000001")
+    await h.svc.reply_message(update(reply_to=notification("abcdef0000000001"), text="Yes"), ctx())
+    h.svc.devin_client.send_message.assert_awaited_once_with("abcdef0000000001", "Yes")
+    assert "Sent to Devin" in h.text and "<i>Yes</i>" in h.text
+
+
+async def test_text_reply_revives_completed_session(h):
+    s = h.session(h.repo("o/r"), "abcdef0000000001", status=SessionStatus.COMPLETED)
+    await h.svc.reply_message(update(reply_to=notification("abcdef0000000001"), text="one more thing"), ctx())
+    assert h.reload(s).status == SessionStatus.RUNNING
+
+
+async def test_text_reply_to_cancelled_session_is_refused(h):
+    h.session(h.repo("o/r"), "abcdef0000000001", status=SessionStatus.CANCELLED)
+    await h.svc.reply_message(update(reply_to=notification("abcdef0000000001"), text="Yes"), ctx())
+    h.svc.devin_client.send_message.assert_not_awaited()
+    assert "was cancelled" in h.text
+
+
+async def test_text_reply_to_non_session_message_is_ignored(h):
+    h.session(h.repo("o/r"), "abcdef0000000001")
+    await h.svc.reply_message(update(reply_to=notification(None), text="hello?"), ctx())
+    h.svc.devin_client.send_message.assert_not_awaited()
+    assert h.replies == []
+
+
+async def test_text_reply_from_unauthorized_chat_is_rejected(h):
+    h.session(h.repo("o/r"), "abcdef0000000001")
+    await h.svc.reply_message(update(chat_id="3000", reply_to=notification("abcdef0000000001"), text="Yes"), ctx())
+    h.svc.devin_client.send_message.assert_not_awaited()
+    assert "not authorized" in h.text
+
+
+async def test_text_reply_reports_devin_api_failure(h):
+    h.session(h.repo("o/r"), "abcdef0000000001")
+    h.svc.devin_client.send_message = AsyncMock(side_effect=RuntimeError("403 <forbidden>"))
+    await h.svc.reply_message(update(reply_to=notification("abcdef0000000001"), text="Yes"), ctx())
+    assert "Failed to send your reply" in h.text and "&lt;forbidden&gt;" in h.text
