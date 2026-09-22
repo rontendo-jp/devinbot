@@ -31,5 +31,6 @@ def init_db():
         for column, ddl in (
             ("devin_status", "VARCHAR(50)"),
             ("devin_status_detail", "VARCHAR(100)"),
+            ("last_devin_message", "TEXT"),
         ):
             conn.execute(text(f"ALTER TABLE sessions ADD COLUMN IF NOT EXISTS {column} {ddl}"))

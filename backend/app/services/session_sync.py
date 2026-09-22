@@ -87,6 +87,15 @@ class SessionSyncService:
             logger.warning(f"Could not refresh session {session.devin_session_id}: {e}")
             return None
 
+    async def fetch_last_message(self, session: DBSession) -> Optional[str]:
+        if not session.devin_session_id:
+            return None
+        try:
+            return await self.devin_client.get_last_devin_message(session.devin_session_id)
+        except Exception as e:
+            logger.warning(f"Could not fetch last message of {session.devin_session_id}: {e}")
+            return None
+
     async def refresh(self, db, sessions: List[DBSession]) -> List[str]:
         """
         Fetch live statuses concurrently and persist them as-is.
@@ -98,11 +107,17 @@ class SessionSyncService:
 
     async def _refresh(self, db, sessions: List[DBSession]) -> List[str]:
         db.expire_all()
-        live_results = await asyncio.gather(*(self.fetch_live(s) for s in sessions))
+        live_results, messages = await asyncio.gather(
+            asyncio.gather(*(self.fetch_live(s) for s in sessions)),
+            asyncio.gather(*(self.fetch_last_message(s) for s in sessions)),
+        )
         texts: List[str] = []
         changed: List[Tuple[DBSession, str]] = []
         dirty = False
-        for session, live in zip(sessions, live_results):
+        for session, live, message in zip(sessions, live_results, messages):
+            if message and message != session.last_devin_message:
+                session.last_devin_message = message
+                dirty = True
             if not live:
                 texts.append(session_status_text(session))
                 continue

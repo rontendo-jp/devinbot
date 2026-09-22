@@ -24,8 +24,9 @@ def seed(db_factory, *statuses):
         return [r.id for r in rows]
 
 
-def make_service(statuses_by_id, notifier=None):
+def make_service(statuses_by_id, notifier=None, messages_by_id=None):
     client = MagicMock()
+    messages_by_id = messages_by_id or {}
 
     async def get_session(sid):
         result = statuses_by_id[sid]
@@ -33,8 +34,38 @@ def make_service(statuses_by_id, notifier=None):
             raise result
         return result
 
+    async def get_last_devin_message(sid):
+        result = messages_by_id.get(sid)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
     client.get_session = AsyncMock(side_effect=get_session)
+    client.get_last_devin_message = AsyncMock(side_effect=get_last_devin_message)
     return SessionSyncService(client, notifier=notifier)
+
+
+async def test_refresh_stores_last_devin_message(db_factory):
+    seed(db_factory, SessionStatus.RUNNING, SessionStatus.RUNNING)
+    messages = {"sid0000000000000": "Opened https://github.com/o/r/pull/1", "sid0000000000001": RuntimeError("boom")}
+    svc = make_service({"sid0000000000000": {"status": "running", "status_detail": "working"},
+                        "sid0000000000001": {"status": "running", "status_detail": "working"}}, messages_by_id=messages)
+    with db_factory() as db:
+        rows = db.query(DBSession).order_by(DBSession.devin_session_id).all()
+        await svc.refresh(db, rows)
+        db.commit()
+    with db_factory() as db:
+        rows = {r.devin_session_id: r for r in db.query(DBSession).all()}
+    assert rows["sid0000000000000"].last_devin_message == "Opened https://github.com/o/r/pull/1"
+    assert rows["sid0000000000001"].last_devin_message is None
+
+    # message updates are persisted even when the status pair is unchanged
+    messages["sid0000000000000"] = "PR merged"
+    with db_factory() as db:
+        rows = db.query(DBSession).order_by(DBSession.devin_session_id).all()
+        await svc.refresh(db, rows)
+    with db_factory() as db:
+        assert db.query(DBSession).filter_by(devin_session_id="sid0000000000000").one().last_devin_message == "PR merged"
 
 
 @pytest.mark.parametrize("live,expected", [

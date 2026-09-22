@@ -8,12 +8,14 @@ import { usePolling } from '@/hooks/usePolling';
 
 interface Session {
   id: string;
-  devin_session_id: string;
+  devin_session_id: string | null;
+  session_url: string | null;
   repository_id: string;
   trigger_type: string;
   status: string;
   devin_status: string | null;
   devin_status_detail: string | null;
+  last_devin_message: string | null;
   prompt: string;
   created_at: string;
   completed_at: string | null;
@@ -24,6 +26,42 @@ interface SessionListProps {
 }
 
 const FILTERS = ['all', 'running', 'completed', 'failed'] as const;
+
+const URL_PATTERN = /(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g;
+
+// Timestamps without an offset are UTC; parse them as such so they render in the viewer's local time.
+function parseTimestamp(value: string): Date {
+  return new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`);
+}
+
+function formatLocalTime(value: string, locale: string): string {
+  return parseTimestamp(value).toLocaleString(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+}
+
+function linkify(text: string) {
+  return text.split(URL_PATTERN).map((part, i) =>
+    i % 2 === 1 ? (
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 hover:underline break-all"
+      >
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  );
+}
 
 export default function SessionList({ selectedRepository }: SessionListProps) {
   const { locale, t } = useLocale();
@@ -152,15 +190,33 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
                       </span>
                     )}
                     <span className="text-xs text-gray-500">
-                      {new Date(session.created_at).toLocaleString(locale)}
+                      {formatLocalTime(session.created_at, locale)}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-900 font-medium mb-1 truncate">
-                    {session.prompt.substring(0, 100)}...
+                  <p className="text-sm text-gray-900 font-medium mb-1 truncate" title={session.prompt}>
+                    {session.prompt.length > 100 ? `${session.prompt.substring(0, 100)}...` : session.prompt}
                   </p>
-                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                  {session.last_devin_message && (
+                    <div className="mb-2 rounded-md bg-gray-50 border border-gray-200 p-3">
+                      <p className="text-xs font-medium text-gray-500 mb-1">{t('sessions.devinSays')}</p>
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap break-words">
+                        {linkify(session.last_devin_message)}
+                      </p>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500">
                     <span>{t('sessions.trigger')}: {session.trigger_type}</span>
-                    <span>{t('sessions.id')}: {session.devin_session_id?.substring(0, 8)}...</span>
+                    {session.session_url && (
+                      <a
+                        href={session.session_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                        title={session.devin_session_id ?? undefined}
+                      >
+                        {t('sessions.openInDevin')} ↗
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
