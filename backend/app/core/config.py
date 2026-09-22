@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # unchanged this long
     session_sync_suspended_hours: int = 24
     
+    # Bearer token required for repository create/update/delete
+    admin_api_token: str = ""
+
     # CORS
     cors_origins: str = "http://localhost:3000"
 

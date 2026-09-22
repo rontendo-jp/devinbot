@@ -2,7 +2,10 @@ import logging
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from app.core.auth import require_admin
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.database import Repository
 import uuid
@@ -10,6 +13,23 @@ import uuid
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+admin = Depends(require_admin)
+
+
+class RepositoryCreate(BaseModel):
+    github_repo_path: str = Field(min_length=3, pattern=r"^[^/\s]+/[^/\s]+$")
+    telegram_chat_id: str
+    telegram_topic_id: Optional[str] = None
+    devin_org_id: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    enabled: bool = True
+
+
+class RepositoryUpdate(BaseModel):
+    telegram_chat_id: Optional[str] = None
+    telegram_topic_id: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    enabled: Optional[bool] = None
 
 
 @router.get("/")
@@ -45,28 +65,13 @@ async def list_repositories(
     }
 
 
-@router.post("/")
-async def create_repository(
-    github_repo_path: str,
-    telegram_chat_id: str,
-    telegram_topic_id: Optional[str] = None,
-    devin_org_id: Optional[str] = None,
-    webhook_secret: Optional[str] = None,
-    enabled: bool = True,
-    db: Session = Depends(get_db)
-):
+@router.post("/", dependencies=[admin])
+async def create_repository(body: RepositoryCreate, db: Session = Depends(get_db)):
     """
-    Create a new repository configuration.
+    Create a new repository configuration (admin token required; secrets travel in the JSON body).
     """
-    from app.core.config import settings
-    
-    # Use default org_id if not provided
-    if not devin_org_id:
-        devin_org_id = settings.devin_org_id
-    
-    # Check if repository already exists
     existing = db.query(Repository).filter(
-        Repository.github_repo_path == github_repo_path
+        Repository.github_repo_path == body.github_repo_path
     ).first()
     
     if existing:
@@ -74,12 +79,12 @@ async def create_repository(
     
     try:
         new_repository = Repository(
-            github_repo_path=github_repo_path,
-            telegram_chat_id=telegram_chat_id,
-            telegram_topic_id=telegram_topic_id,
-            devin_org_id=devin_org_id,
-            webhook_secret=webhook_secret or settings.github_webhook_secret,
-            enabled=enabled
+            github_repo_path=body.github_repo_path,
+            telegram_chat_id=body.telegram_chat_id,
+            telegram_topic_id=body.telegram_topic_id,
+            devin_org_id=body.devin_org_id or settings.devin_org_id,
+            webhook_secret=body.webhook_secret or settings.github_webhook_secret,
+            enabled=body.enabled
         )
         db.add(new_repository)
         db.commit()
@@ -125,16 +130,10 @@ async def get_repository(repository_id: str, db: Session = Depends(get_db)):
     }
 
 
-@router.put("/{repository_id}")
-async def update_repository(
-    repository_id: str,
-    telegram_chat_id: Optional[str] = None,
-    telegram_topic_id: Optional[str] = None,
-    enabled: Optional[bool] = None,
-    db: Session = Depends(get_db)
-):
+@router.put("/{repository_id}", dependencies=[admin])
+async def update_repository(repository_id: str, body: RepositoryUpdate, db: Session = Depends(get_db)):
     """
-    Update a repository configuration.
+    Update a repository configuration (admin token required).
     """
     try:
         repo_uuid = uuid.UUID(repository_id)
@@ -146,12 +145,8 @@ async def update_repository(
         raise HTTPException(status_code=404, detail="Repository not found")
     
     try:
-        if telegram_chat_id is not None:
-            repository.telegram_chat_id = telegram_chat_id
-        if telegram_topic_id is not None:
-            repository.telegram_topic_id = telegram_topic_id
-        if enabled is not None:
-            repository.enabled = enabled
+        for field, value in body.model_dump(exclude_unset=True).items():
+            setattr(repository, field, value)
         
         repository.updated_at = datetime.utcnow()
         db.commit()
@@ -167,10 +162,10 @@ async def update_repository(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/{repository_id}")
+@router.delete("/{repository_id}", dependencies=[admin])
 async def delete_repository(repository_id: str, db: Session = Depends(get_db)):
     """
-    Delete a repository configuration.
+    Delete a repository configuration (admin token required).
     """
     try:
         repo_uuid = uuid.UUID(repository_id)

@@ -94,6 +94,9 @@ LOG_LEVEL=INFO
 
 # CORS Configuration
 CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+
+# Bearer token for repository create/update/delete (e.g. `openssl rand -hex 32`)
+ADMIN_API_TOKEN=your_admin_api_token_here
 ```
 
 5. **Initialize database**
@@ -201,10 +204,20 @@ Navigate to `http://localhost:3000`
 
 ### Repositories
 - `GET /api/repositories/` - List repositories
-- `POST /api/repositories/` - Create repository
+- `POST /api/repositories/` - Create repository (admin)
 - `GET /api/repositories/{id}` - Get repository details
-- `PUT /api/repositories/{id}` - Update repository
-- `DELETE /api/repositories/{id}` - Delete repository
+- `PUT /api/repositories/{id}` - Update repository (admin)
+- `DELETE /api/repositories/{id}` - Delete repository (admin)
+
+Admin endpoints require `Authorization: Bearer $ADMIN_API_TOKEN` and take a JSON body, e.g.
+
+```bash
+curl -X POST "$APP_BASE_URL/api/repositories/" \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN" -H "Content-Type: application/json" \
+  -d '{"github_repo_path":"owner/repo","telegram_chat_id":"-1001234567890"}'
+```
+
+`webhook_secret` and `devin_org_id` are optional and default to `GITHUB_WEBHOOK_SECRET` / `DEVIN_ORG_ID`.
 
 ### WebSocket
 - `WS /ws/ws` - Real-time metrics updates
