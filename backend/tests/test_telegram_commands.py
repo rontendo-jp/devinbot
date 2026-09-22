@@ -358,7 +358,40 @@ async def test_needs_input_alert_includes_devins_last_message(h):
     h.svc.devin_client.get_last_devin_message = AsyncMock(return_value="Review posted on <PR>.\nMain concern: polling.")
     await h.svc.status_command(update(), ctx())
     text = h.svc.send_message_to_topic.await_args.args[2]
-    assert "Devin says:" in text and "Review posted on &lt;PR&gt;. Main concern: polling." in text
+    assert "Devin says:" in text and "Review posted on &lt;PR&gt;.\nMain concern: polling." in text
+    assert "https://app.devin.ai/sessions/aaaaaaaa11111111" in text
+    assert "<b>Task:</b>" in text
+
+
+async def test_completion_alert_also_includes_devins_last_message(h):
+    r = h.repo("o/r", topic_id="42")
+    h.session(r, "aaaaaaaa11111111")
+    h.svc.devin_client.get_session = AsyncMock(return_value={"status": "suspended", "status_detail": "inactivity"})
+    h.svc.devin_client.get_last_devin_message = AsyncMock(return_value="Merged PR #7.")
+    await h.svc.status_command(update(), ctx())
+    text = h.svc.send_message_to_topic.await_args.args[2]
+    assert "Session suspended / inactivity" in text and "Devin says:</b>\nMerged PR #7." in text
+
+
+async def test_long_devin_message_is_truncated_for_telegram(h):
+    r = h.repo("o/r", topic_id="42")
+    h.session(r, "aaaaaaaa11111111")
+    h.svc.devin_client.get_session = AsyncMock(return_value={"status": "running", "status_detail": "waiting_for_user"})
+    h.svc.devin_client.get_last_devin_message = AsyncMock(return_value="x" * 5000)
+    await h.svc.status_command(update(), ctx())
+    text = h.svc.send_message_to_topic.await_args.args[2]
+    assert len(text) < 4096 and text.count("x") == 2999 and "…" in text
+
+
+async def test_webhook_notification_shows_task_and_full_session_url(h):
+    await h.svc.send_session_notification(
+        MAIN_CHAT, None,
+        {"status": "running", "repository_name": "o/r", "session_id": "aaaaaaaa11111111",
+         "trigger_type": "issue", "title": "Issue #4: <JP> support", "url": "https://github.com/o/r/issues/4"},
+    )
+    text = h.svc.send_message_to_topic.await_args.args[2]
+    assert '<a href="https://github.com/o/r/issues/4">Issue #4: &lt;JP&gt; support</a>' in text
+    assert ">https://app.devin.ai/sessions/aaaaaaaa11111111</a>" in text
 
 
 async def test_needs_input_alert_survives_message_fetch_failure(h):
