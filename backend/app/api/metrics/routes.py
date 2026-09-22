@@ -1,12 +1,13 @@
 import logging
 from typing import Optional
+import httpx
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from app.db.session import get_db
 from app.services.devin_client import DevinClient
 from app.models.database import Session as DBSession, Repository, SessionStatus
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ async def get_metrics(
     active_sessions = status_counts.get("running", 0)
     completed_sessions_count = status_counts.get("completed", 0)
     
-    # Get cost consumption from Devin Analytics API
+    # Get ACU consumption from the Devin v3 consumption API
     cost_data = await get_cost_consumption(time_before, now)
     
     # Get repository-specific metrics if repository_id is provided
@@ -86,44 +87,60 @@ async def get_metrics(
     }
 
 
+def summarize_consumption(consumption_data: dict) -> dict:
+    """Aggregate a v3 daily-consumption response into the dashboard's cost_metrics shape."""
+    by_date = consumption_data.get("consumption_by_date") or []
+    total_acus = consumption_data.get("total_acus")
+    if total_acus is None:
+        total_acus = sum(item.get("acus") or 0 for item in by_date)
+    
+    by_product: dict = {}
+    for item in by_date:
+        for product, acus in (item.get("acus_by_product") or {}).items():
+            by_product[product] = by_product.get(product, 0) + (acus or 0)
+    
+    return {
+        "total_acus": round(float(total_acus), 4),
+        "acus_by_product": {k: round(float(v), 4) for k, v in by_product.items()},
+        "granularity": "daily",
+        "data_points": len(by_date),
+        "daily": [
+            {
+                "date": item.get("date"),
+                "acus": round(float(item.get("acus") or 0), 4),
+                "acus_by_product": item.get("acus_by_product") or {},
+            }
+            for item in by_date
+        ],
+    }
+
+
 async def get_cost_consumption(start: datetime, end: datetime) -> dict:
     """
-    Get cost consumption data from Devin Analytics API for [start, end].
+    Get ACU consumption for [start, end] from the Devin v3 daily consumption API.
+    
+    The API is bucketed by day (midnight PST), so sub-day ranges (1h/24h)
+    return the ACUs of the day(s) overlapping the range.
     """
     try:
-        consumption_data = await devin_client.get_consumption_analytics(
-            start_date=start.strftime("%Y-%m-%d"),
-            end_date=end.strftime("%Y-%m-%d")
+        consumption_data = await devin_client.get_daily_consumption(
+            time_after=int(start.replace(tzinfo=timezone.utc).timestamp()),
+            time_before=int(end.replace(tzinfo=timezone.utc).timestamp()),
         )
+        return summarize_consumption(consumption_data)
         
-        # Extract relevant metrics
-        total_cost = 0
-        total_acus = 0
-        total_credits = 0
-        
-        if "data" in consumption_data:
-            for item in consumption_data["data"]:
-                # Add up costs based on billing strategy
-                if "acus" in item:
-                    total_acus += item.get("acus", 0)
-                if "credits" in item:
-                    total_credits += item.get("credits", 0)
-        
-        return {
-            "total_acus": total_acus,
-            "total_credits": total_credits,
-            "currency": "USD",
-            "data_points": len(consumption_data.get("data", []))
-        }
-        
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code
+        detail = f"HTTP {status}"
+        if status == 403:
+            detail = "Forbidden: consumption API requires the ViewOrgConsumption permission and an Enterprise plan"
+        elif status == 401:
+            detail = "Unauthorized: check DEVIN_API_KEY"
+        logger.error(f"Error fetching cost consumption: {detail} ({e.response.text[:200]})")
+        return {"total_acus": None, "acus_by_product": {}, "granularity": "daily", "data_points": 0, "daily": [], "error": detail}
     except Exception as e:
         logger.error(f"Error fetching cost consumption: {e}")
-        return {
-            "total_acus": 0,
-            "total_credits": 0,
-            "currency": "USD",
-            "error": str(e)
-        }
+        return {"total_acus": None, "acus_by_product": {}, "granularity": "daily", "data_points": 0, "daily": [], "error": str(e)}
 
 
 @router.get("/repositories")

@@ -147,7 +147,7 @@ Navigate to `http://localhost:3000`
    - `ImpersonateOrgSessions` - Create sessions on behalf of users
    - `UseReviewManual` - Trigger PR reviews
    - `ViewOrgMetrics` - Access usage metrics
-   - `UseLocalAnalyticsAPI` - Access Analytics API v2
+   - `ViewOrgConsumption` - Access daily ACU consumption
 4. Copy the API token (shown only once)
 5. Get your organization ID from the Devin UI or API
 

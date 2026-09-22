@@ -12,7 +12,6 @@ class DevinClient:
     
     def __init__(self):
         self.base_url = "https://api.devin.ai/v3"
-        self.analytics_url = "https://server.codeium.com/api/v2alpha"
         self.api_key = settings.devin_api_key
         self.org_id = settings.devin_org_id
         self.headers = {
@@ -216,39 +215,33 @@ class DevinClient:
             response.raise_for_status()
             return response.json()
     
-    async def get_consumption_analytics(
+    async def get_daily_consumption(
         self,
-        start_date: str,
-        end_date: str,
-        product: str = "agent",
-        page_cursor: Optional[str] = None
+        time_after: Optional[int] = None,
+        time_before: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Get consumption analytics from Analytics API v2.
+        Get daily ACU consumption for the organization (v3 consumption API).
+        
+        Days are bucketed at midnight PST (08:00 UTC). Requires the
+        ``ViewOrgConsumption`` permission and an Enterprise plan.
         
         Args:
-            start_date: Start of range, YYYY-MM-DD
-            end_date: End of range, YYYY-MM-DD
-            product: Product to report on (API currently supports "agent")
-            page_cursor: Optional cursor for pagination
+            time_after: Optional Unix timestamp for range start
+            time_before: Optional Unix timestamp for range end
             
         Returns:
-            Consumption analytics data
+            ``{"total_acus": float, "consumption_by_date": [{"date": int, "acus": float, "acus_by_product": {...}}]}``
         """
-        url = f"{self.analytics_url}/analytics/consumption"
-        params = {
-            "start_date": start_date,
-            "end_date": end_date,
-            "product": product,
-        }
-        if page_cursor:
-            params["page_cursor"] = page_cursor
+        url = f"{self.base_url}/organizations/{self.org_id}/consumption/daily"
+        params = {}
         
-        analytics_headers = {
-            "Authorization": f"Bearer {self.api_key}"
-        }
+        if time_after is not None:
+            params["time_after"] = time_after
+        if time_before is not None:
+            params["time_before"] = time_before
         
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=analytics_headers, params=params)
+            response = await client.get(url, headers=self.headers, params=params)
             response.raise_for_status()
             return response.json()
