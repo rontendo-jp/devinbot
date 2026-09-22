@@ -29,6 +29,7 @@ class Harness:
         self.svc.devin_client = MagicMock()
         self.svc.session_sync.devin_client = self.svc.devin_client
         self.svc.devin_client.get_session = AsyncMock(return_value={"status": "running", "status_detail": "working"})
+        self.svc.devin_client.get_last_devin_message = AsyncMock(return_value=None)
         self.svc.devin_client.terminate_session = AsyncMock(return_value={})
         self.svc.devin_client.create_session = AsyncMock(return_value={"session_id": "cafebabe12345678"})
         self.svc.devin_client.get_consumption_analytics = AsyncMock(side_effect=RuntimeError("401"))

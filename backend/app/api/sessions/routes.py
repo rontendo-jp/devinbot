@@ -5,13 +5,47 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.services.devin_client import DevinClient
 from app.models.database import Session as DBSession, Repository, SessionStatus, DevinMode, TriggerType
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 devin_client = DevinClient()
+
+DEVIN_SESSION_URL = "https://app.devin.ai/sessions/{}"
+
+
+def iso_utc(value: Optional[datetime]) -> Optional[str]:
+    """Timestamps are stored as naive UTC; emit them with an explicit offset so clients render local time."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
+
+
+def serialize_session(session: DBSession, include_context: bool = False) -> dict:
+    data = {
+        "id": str(session.id),
+        "devin_session_id": session.devin_session_id,
+        "session_url": DEVIN_SESSION_URL.format(session.devin_session_id) if session.devin_session_id else None,
+        "repository_id": str(session.repository_id),
+        "trigger_type": session.trigger_type.value,
+        "status": session.status.value,
+        "devin_status": session.devin_status,
+        "devin_status_detail": session.devin_status_detail,
+        "last_devin_message": session.last_devin_message,
+        "prompt": session.prompt,
+        "devin_mode": session.devin_mode.value,
+        "error_message": session.error_message,
+        "created_at": iso_utc(session.created_at),
+        "updated_at": iso_utc(session.updated_at),
+        "completed_at": iso_utc(session.completed_at),
+    }
+    if include_context:
+        data["trigger_context"] = session.trigger_context
+    return data
 
 
 @router.get("/")
@@ -43,24 +77,7 @@ async def list_sessions(
     sessions = query.order_by(DBSession.created_at.desc()).limit(limit).all()
     
     return {
-        "sessions": [
-            {
-                "id": str(session.id),
-                "devin_session_id": session.devin_session_id,
-                "repository_id": str(session.repository_id),
-                "trigger_type": session.trigger_type.value,
-                "status": session.status.value,
-                "devin_status": session.devin_status,
-                "devin_status_detail": session.devin_status_detail,
-                "prompt": session.prompt,
-                "devin_mode": session.devin_mode.value,
-                "error_message": session.error_message,
-                "created_at": session.created_at.isoformat(),
-                "updated_at": session.updated_at.isoformat(),
-                "completed_at": session.completed_at.isoformat() if session.completed_at else None
-            }
-            for session in sessions
-        ],
+        "sessions": [serialize_session(session) for session in sessions],
         "count": len(sessions)
     }
 
@@ -80,22 +97,7 @@ async def get_session(session_id: str, db: Session = Depends(get_db)):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    return {
-        "id": str(session.id),
-        "devin_session_id": session.devin_session_id,
-        "repository_id": str(session.repository_id),
-        "trigger_type": session.trigger_type.value,
-        "trigger_context": session.trigger_context,
-        "status": session.status.value,
-        "devin_status": session.devin_status,
-        "devin_status_detail": session.devin_status_detail,
-        "prompt": session.prompt,
-        "devin_mode": session.devin_mode.value,
-        "error_message": session.error_message,
-        "created_at": session.created_at.isoformat(),
-        "updated_at": session.updated_at.isoformat(),
-        "completed_at": session.completed_at.isoformat() if session.completed_at else None
-    }
+    return serialize_session(session, include_context=True)
 
 
 @router.post("/")
