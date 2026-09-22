@@ -68,6 +68,27 @@ async def test_refresh_stores_last_devin_message(db_factory):
         assert db.query(DBSession).filter_by(devin_session_id="sid0000000000000").one().last_devin_message == "PR merged"
 
 
+async def test_message_fetch_skipped_for_unchanged_non_running_sessions(db_factory):
+    seed(db_factory, SessionStatus.RUNNING, SessionStatus.COMPLETED, SessionStatus.COMPLETED)
+    with db_factory() as db:
+        rows = db.query(DBSession).order_by(DBSession.devin_session_id).all()
+        rows[1].devin_status, rows[1].devin_status_detail = "suspended", "inactivity"
+        db.commit()
+    svc = make_service({
+        "sid0000000000000": {"status": "running", "status_detail": "working"},   # running: always fetched
+        "sid0000000000001": {"status": "suspended", "status_detail": "inactivity"},  # unchanged: skipped
+        "sid0000000000002": {"status": "exit"},  # status changed: fetched once for the final message
+    }, messages_by_id={sid: f"msg {sid[-1]}" for sid in ("sid0000000000000", "sid0000000000001", "sid0000000000002")})
+    with db_factory() as db:
+        rows = db.query(DBSession).order_by(DBSession.devin_session_id).all()
+        await svc.refresh(db, rows)
+    fetched = sorted(c.args[0] for c in svc.devin_client.get_last_devin_message.await_args_list)
+    assert fetched == ["sid0000000000000", "sid0000000000002"]
+    with db_factory() as db:
+        rows = {r.devin_session_id: r.last_devin_message for r in db.query(DBSession).all()}
+    assert rows == {"sid0000000000000": "msg 0", "sid0000000000001": None, "sid0000000000002": "msg 2"}
+
+
 @pytest.mark.parametrize("live,expected", [
     ({"status": "running", "status_detail": "working"}, SessionStatus.RUNNING),
     ({"status": "running", "status_detail": "waiting_for_user"}, SessionStatus.RUNNING),
