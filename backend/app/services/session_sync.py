@@ -1,10 +1,11 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.database import Session as DBSession, SessionStatus
 from app.services.devin_client import DevinClient
@@ -135,14 +136,18 @@ class SessionSyncService:
 
     async def sync_all(self) -> int:
         """
-        Refresh every local session that may still change: active ones, plus suspended ones,
-        which Devin can resume. Returns the number of sessions whose Devin status changed.
+        Refresh every local session that may still change: active ones, plus recently suspended
+        ones, which Devin can resume. Returns the number of sessions whose Devin status changed.
         """
+        suspended_cutoff = datetime.utcnow() - timedelta(hours=settings.session_sync_suspended_hours)
         with SessionLocal() as db:
             sessions = (
                 db.query(DBSession)
                 .filter(
-                    or_(DBSession.status.in_(ACTIVE_STATUSES), DBSession.devin_status == "suspended"),
+                    or_(
+                        DBSession.status.in_(ACTIVE_STATUSES),
+                        and_(DBSession.devin_status == "suspended", DBSession.updated_at >= suspended_cutoff),
+                    ),
                     DBSession.devin_session_id.isnot(None),
                 )
                 .all()

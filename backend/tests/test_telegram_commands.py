@@ -278,3 +278,23 @@ async def test_status_waiting_for_user_alerts_repo_topic(h):
     chat_id, topic_id, text = h.svc.send_message_to_topic.await_args.args
     assert (chat_id, topic_id) == (MAIN_CHAT, "42")
     assert "Devin needs your input" in text and "running / waiting_for_user" in text
+
+
+async def test_needs_input_alert_includes_devins_last_message(h):
+    r = h.repo("o/r", topic_id="42")
+    h.session(r, "aaaaaaaa11111111")
+    h.svc.devin_client.get_session = AsyncMock(return_value={"status": "running", "status_detail": "waiting_for_user"})
+    h.svc.devin_client.get_last_devin_message = AsyncMock(return_value="Review posted on <PR>.\nMain concern: polling.")
+    await h.svc.status_command(update(), ctx())
+    text = h.svc.send_message_to_topic.await_args.args[2]
+    assert "Devin says:" in text and "Review posted on &lt;PR&gt;. Main concern: polling." in text
+
+
+async def test_needs_input_alert_survives_message_fetch_failure(h):
+    r = h.repo("o/r", topic_id="42")
+    h.session(r, "aaaaaaaa11111111")
+    h.svc.devin_client.get_session = AsyncMock(return_value={"status": "running", "status_detail": "waiting_for_user"})
+    h.svc.devin_client.get_last_devin_message = AsyncMock(side_effect=RuntimeError("boom"))
+    await h.svc.status_command(update(), ctx())
+    text = h.svc.send_message_to_topic.await_args.args[2]
+    assert "Devin needs your input" in text and "Devin says:" not in text

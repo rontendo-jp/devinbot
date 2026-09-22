@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     app_base_url: str = "http://localhost:8000"
     log_level: str = "INFO"
     session_sync_interval_seconds: int = 120
+    # suspended sessions are still polled (Devin can resume them) until they have sat
+    # unchanged this long
+    session_sync_suspended_hours: int = 24
     
     # CORS
     cors_origins: str = "http://localhost:3000"

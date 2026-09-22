@@ -182,3 +182,19 @@ async def test_concurrent_refreshes_notify_once(db_factory, monkeypatch):
     import asyncio
     await asyncio.gather(svc.sync_all(), svc.sync_all())
     assert notifier.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stale_suspended_sessions_are_not_polled(db_factory, monkeypatch):
+    from datetime import timedelta
+    monkeypatch.setattr(session_sync, "SessionLocal", db_factory)
+    seed(db_factory, SessionStatus.COMPLETED, SessionStatus.COMPLETED)
+    with db_factory() as db:
+        fresh, stale = db.query(DBSession).order_by(DBSession.devin_session_id).all()
+        for row, age in ((fresh, timedelta(hours=1)), (stale, timedelta(days=3))):
+            row.devin_status, row.devin_status_detail = "suspended", "inactivity"
+            row.updated_at = datetime.utcnow() - age
+        db.commit()
+    svc = make_service({"sid0000000000000": {"status": "running", "status_detail": "working"}})
+    assert await svc.sync_all() == 1
+    svc.devin_client.get_session.assert_awaited_once_with("sid0000000000000")
