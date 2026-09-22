@@ -33,6 +33,10 @@ DEVIN_SESSION_URL_RE = re.compile(r"https://app\.devin\.ai/sessions/([0-9a-f]{8,
 
 REPLY_HINT = "Reply to this message with /done or /cancel to act on the session."
 
+# Telegram rejects messages over 4096 chars; leave headroom for the header/footer.
+DEVIN_MESSAGE_LIMIT = 3000
+PROMPT_PREVIEW_LIMIT = 200
+
 CREATE_USAGE = "❌ Usage: /create [owner/repo] [--mode normal|fast|lite|ultra|fusion] &lt;prompt&gt;"
 
 
@@ -174,9 +178,15 @@ class TelegramBotService:
 {status_emoji} <b>Session {escape(str(status))}</b>
 
 <b>Repository:</b> {escape(str(repo_name))}
-<b>Session ID:</b> {self._session_link(session_id)}
 <b>Trigger:</b> {escape(str(trigger_type))}
 """
+        title, url = session_data.get("title"), session_data.get("url")
+        if title:
+            task = escape(str(title))
+            if url:
+                task = f'<a href="{escape(str(url))}">{task}</a>'
+            message += f"<b>Task:</b> {task}\n"
+        message += f"<b>Session:</b> {self._session_url(session_id)}\n"
         
         if status == "running":
             message += f"\n💡 Devin is working on your request...\n\n<i>{REPLY_HINT}</i>"
@@ -286,10 +296,9 @@ class TelegramBotService:
         """Post to the repository's chat/topic whenever Devin's reported status changes."""
         repository = session.repository
         current = session_status_text(session)
-        last_message = None
+        last_message = self._last_devin_message(session)
         if session.devin_status_detail in NEEDS_USER_DETAILS:
             emoji, headline = "⚠️", "Devin needs your input"
-            last_message = self._last_devin_message(session)
         else:
             emoji = {
                 SessionStatus.COMPLETED: "✅",
@@ -298,13 +307,15 @@ class TelegramBotService:
             }.get(session.status, "🔄")
             headline = f"Session {current}"
         message = (
-            f"{emoji} <b>{escape(headline)}</b> — {self._session_link(session.devin_session_id)}\n"
+            f"{emoji} <b>{escape(headline)}</b>\n"
             f"<b>Repository:</b> {escape(repository.github_repo_path)}\n"
             f"<b>Trigger:</b> {escape(session.trigger_type.value)}\n"
-            f"<b>Devin status:</b> {escape(previous)} → {escape(current)}"
+            f"<b>Task:</b> {escape(self._prompt_preview(session))}\n"
+            f"<b>Devin status:</b> {escape(previous)} → {escape(current)}\n"
+            f"<b>Session:</b> {self._session_url(session.devin_session_id)}"
         )
         if last_message:
-            message += f"\n<b>Devin says:</b> <i>{escape(last_message)}</i>"
+            message += f"\n\n<b>Devin says:</b>\n{escape(last_message)}"
         if session.status in ACTIVE_STATUSES:
             message += f"\n\n<i>{REPLY_HINT}</i>"
         await self.send_message_to_topic(repository.telegram_chat_id, repository.telegram_topic_id, message)
@@ -356,12 +367,25 @@ class TelegramBotService:
         return matches[0]
 
     @staticmethod
-    def _last_devin_message(session: DBSession, limit: int = 400) -> Optional[str]:
-        """Devin's last message as persisted by the sync loop, collapsed to one line for Telegram."""
-        text = session.last_devin_message
+    def _session_url(devin_session_id: Optional[str]) -> str:
+        """Full app.devin.ai link, shown verbatim so it is readable and tappable in Telegram."""
+        if not devin_session_id:
+            return "<i>no Devin ID</i>"
+        url = DEVIN_SESSION_URL.format(escape(devin_session_id))
+        return f'<a href="{url}">{url}</a>'
+
+    @staticmethod
+    def _prompt_preview(session: DBSession, limit: int = PROMPT_PREVIEW_LIMIT) -> str:
+        text = " ".join((session.prompt or "").split())
+        return text if len(text) <= limit else text[: limit - 1] + "…"
+
+    @staticmethod
+    def _last_devin_message(session: DBSession, limit: int = DEVIN_MESSAGE_LIMIT) -> Optional[str]:
+        """Devin's last message as persisted by the sync loop, keeping its line breaks."""
+        text = (session.last_devin_message or "").strip()
         if not text:
             return None
-        text = " ".join(text.split())
+        text = re.sub(r"\n{3,}", "\n\n", text)
         return text if len(text) <= limit else text[: limit - 1] + "…"
     
     # ------------------------------------------------------------------

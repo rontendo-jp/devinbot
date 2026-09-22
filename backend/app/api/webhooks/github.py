@@ -73,7 +73,9 @@ Please review the changes, check for issues, and provide feedback.
                 "status": "running",
                 "repository_name": repo_full_name,
                 "session_id": devin_session_id,
-                "trigger_type": "pr_review"
+                "trigger_type": "pr_review",
+                "title": f"PR #{context.get('pr_number')}: {context.get('title')}",
+                "url": context.get("pr_url"),
             }
         )
         
@@ -146,7 +148,9 @@ Please analyze the issue and implement a solution.
                 "status": "running",
                 "repository_name": repo_full_name,
                 "session_id": devin_session_id,
-                "trigger_type": "issue"
+                "trigger_type": "issue",
+                "title": f"Issue #{context.get('issue_number')}: {context.get('title')}",
+                "url": issue_url,
             }
         )
         
