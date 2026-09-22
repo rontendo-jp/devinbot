@@ -73,6 +73,19 @@ def test_update_and_delete_require_admin(client):
     assert client.delete(f"/api/repositories/{repo_id}", headers=AUTH).status_code == 200
 
 
+def test_update_ignores_explicit_nulls(client):
+    repo_id = create(client).json()["id"]
+    r = client.put(
+        f"/api/repositories/{repo_id}",
+        json={"telegram_chat_id": None, "webhook_secret": None, "enabled": False},
+        headers=AUTH,
+    )
+    assert r.status_code == 200, r.text
+    repo = client.get(f"/api/repositories/{repo_id}").json()
+    assert repo["telegram_chat_id"] == "1000"
+    assert repo["enabled"] is False
+
+
 def test_admin_endpoints_disabled_without_token_configured(client, monkeypatch):
     monkeypatch.setattr(settings, "admin_api_token", "")
     assert create(client).status_code == 503

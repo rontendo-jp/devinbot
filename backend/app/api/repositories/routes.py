@@ -145,7 +145,7 @@ async def update_repository(repository_id: str, body: RepositoryUpdate, db: Sess
         raise HTTPException(status_code=404, detail="Repository not found")
     
     try:
-        for field, value in body.model_dump(exclude_unset=True).items():
+        for field, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
             setattr(repository, field, value)
         
         repository.updated_at = datetime.utcnow()
