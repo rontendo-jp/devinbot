@@ -68,7 +68,7 @@ Telegram Bot ← FastAPI Backend ← Devin Sessions/Sessions/Metrics
 - `DELETE /v3/organizations/{org_id}/sessions/{id}` - Terminate sessions
 - `POST /v3/organizations/{org_id}/pr-reviews` - Trigger PR reviews
 - `GET /v3/organizations/{org_id}/metrics/usage` - Usage metrics
-- `GET /api/v2alpha/analytics/consumption` - Cost consumption (Analytics API v2)
+- `GET /v3/organizations/{org_id}/consumption/daily` - Daily ACU consumption
 
 ### Telegram Integration Strategy
 
@@ -159,9 +159,9 @@ scheduled_tasks:
    - Session counts, active vs completed
    - Time-range filtering capabilities
 
-2. **Devin Analytics API v2** (`/api/v2alpha/analytics/consumption`)
-   - Cost consumption (credits/ACUs)
-   - Hourly aggregated data
+2. **Devin Consumption API** (`/v3/organizations/{org_id}/consumption/daily`)
+   - Daily ACU consumption (Enterprise plans only)
+   - Daily aggregated data (midnight PST boundaries)
    - Flexible filtering and grouping
 
 3. **Session Status Tracking** (local database)
@@ -178,7 +178,7 @@ scheduled_tasks:
 - **Success Rate**: (completed sessions / total sessions) × 100
 - **Active Sessions**: Count of sessions with status 'running'
 - **Completed Sessions**: Count of sessions with status 'completed'
-- **Cost Consumption**: Total ACUs/credits from Analytics API
+- **Cost Consumption**: Total ACUs from the consumption API
 - **Session Count**: Total sessions per time period (day, week, month)
 
 ## Development Approach
@@ -279,7 +279,7 @@ LOG_LEVEL=INFO
 - `ImpersonateOrgSessions` - Create sessions on behalf of users (if needed)
 - `UseReviewManual` - Trigger PR reviews
 - `ViewOrgMetrics` - Access usage metrics
-- `UseLocalAnalyticsAPI` - Access Analytics API v2
+- `ViewOrgConsumption` - Access daily ACU consumption
 
 ## Security Considerations
 

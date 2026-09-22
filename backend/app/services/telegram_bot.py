@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from html import escape
 from typing import Optional, Dict, Any, List
 from telegram import Update, Bot, InlineKeyboardMarkup, Message
@@ -616,16 +616,18 @@ class TelegramBotService:
                 f"failed {c['failed']} · cancelled {c['cancelled']} · success {rate:.0f}%"
             )
         
-        cost_line = "n/a (Analytics API unavailable)"
+        cost_line = "n/a (consumption API unavailable)"
         try:
-            consumption = await self.devin_client.get_consumption_analytics(
-                start_date=(now - timedelta(days=7)).strftime("%Y-%m-%d"),
-                end_date=now.strftime("%Y-%m-%d"),
+            consumption = await self.devin_client.get_daily_consumption(
+                time_after=int((now - timedelta(days=7)).replace(tzinfo=timezone.utc).timestamp()),
+                time_before=int(now.replace(tzinfo=timezone.utc).timestamp()),
             )
-            acus = sum(item.get("acus", 0) or 0 for item in consumption.get("data", []))
+            acus = consumption.get("total_acus")
+            if acus is None:
+                acus = sum(item.get("acus") or 0 for item in consumption.get("consumption_by_date", []))
             cost_line = f"{acus:.2f} ACUs (7d)"
         except Exception as e:
-            logger.warning(f"Analytics API unavailable for /metrics: {e}")
+            logger.warning(f"Consumption API unavailable for /metrics: {e}")
         
         message = (
             "📊 <b>Metrics</b>\n\n"

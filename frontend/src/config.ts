@@ -3,6 +3,6 @@ export const config = {
   // Session list: fast while something is pending/running, slow otherwise.
   activePollIntervalMs: 5000,
   idlePollIntervalMs: 30000,
-  // Metrics hit the Devin Analytics API upstream, so keep this conservative.
+  // Metrics hit the Devin consumption API upstream, so keep this conservative.
   metricsPollIntervalMs: 30000,
 };

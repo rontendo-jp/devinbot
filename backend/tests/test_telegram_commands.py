@@ -45,7 +45,7 @@ class Harness:
         self.svc.devin_client.get_last_devin_message = AsyncMock(return_value=None)
         self.svc.devin_client.terminate_session = AsyncMock(return_value={})
         self.svc.devin_client.create_session = AsyncMock(return_value={"session_id": "cafebabe12345678"})
-        self.svc.devin_client.get_consumption_analytics = AsyncMock(side_effect=RuntimeError("401"))
+        self.svc.devin_client.get_daily_consumption = AsyncMock(side_effect=RuntimeError("401"))
         self.replies = []
 
         async def capture(scope, text):
@@ -310,7 +310,7 @@ async def test_metrics_counts_and_degrades_without_analytics(h):
     h.session(r, "b" * 16, status=SessionStatus.COMPLETED)
     await h.svc.metrics_command(update(), ctx())
     assert "total 2" in h.text and "completed 1" in h.text and "success 50%" in h.text
-    assert "Analytics API unavailable" in h.text
+    assert "consumption API unavailable" in h.text
 
 
 # --- /help -------------------------------------------------------------------

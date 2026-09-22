@@ -131,9 +131,20 @@ export default function Home() {
             />
             <MetricsCard
               title={t('metrics.cost')}
-              value={metrics.cost_metrics.total_acus.toFixed(2)}
-              trend="-8%"
-              positive={false}
+              value={
+                metrics.cost_metrics.total_acus == null
+                  ? t('metrics.costUnavailable')
+                  : Number(metrics.cost_metrics.total_acus).toFixed(2)
+              }
+              error={metrics.cost_metrics.error}
+              subtitle={
+                metrics.cost_metrics.total_acus == null
+                  ? undefined
+                  : `${t('metrics.costDaily')} · ${t('metrics.costDays').replace(
+                      '{count}',
+                      String(metrics.cost_metrics.data_points ?? 0),
+                    )}`
+              }
             />
           </div>
         )}
