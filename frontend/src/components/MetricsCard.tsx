@@ -5,14 +5,15 @@ interface MetricsCardProps {
   positive?: boolean;
   subtitle?: string;
   error?: string;
+  muted?: boolean;
 }
 
-export default function MetricsCard({ title, value, trend, positive, subtitle, error }: MetricsCardProps) {
+export default function MetricsCard({ title, value, trend, positive, subtitle, error, muted }: MetricsCardProps) {
   return (
     <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
       <h3 className="text-sm font-medium text-gray-600 mb-2">{title}</h3>
       <div className="flex items-baseline justify-between">
-        <p className={`text-3xl font-bold ${error ? 'text-gray-400' : 'text-gray-900'}`}>{value}</p>
+        <p className={`font-bold ${error || muted ? 'text-gray-400' : 'text-gray-900'} ${muted ? 'text-xl' : 'text-3xl'}`}>{value}</p>
         {trend && !error && (
           <span className={`text-sm font-medium ${positive ? 'text-green-600' : 'text-red-600'}`}>
             {trend}
