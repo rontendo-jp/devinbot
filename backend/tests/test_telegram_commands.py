@@ -11,11 +11,24 @@ from app.services.telegram_bot import CommandScope, TelegramBotService
 MAIN_CHAT = "1000"
 
 
-def update(chat_id=MAIN_CHAT, topic_id=None):
+def update(chat_id=MAIN_CHAT, topic_id=None, reply_to=None):
     return SimpleNamespace(
         effective_chat=SimpleNamespace(id=int(chat_id)),
-        effective_message=SimpleNamespace(message_thread_id=int(topic_id) if topic_id else None),
+        effective_message=SimpleNamespace(
+            message_thread_id=int(topic_id) if topic_id else None,
+            reply_to_message=reply_to,
+        ),
     )
+
+
+def notification(devin_id=None, text="⚠️ Devin needs your input — abcdef00", link_in_entity=True):
+    """A fake previously-sent bot message; the session link lives in a text_link entity like real ones."""
+    entities = []
+    if devin_id and link_in_entity:
+        entities.append(SimpleNamespace(url=f"https://app.devin.ai/sessions/{devin_id}"))
+    elif devin_id:
+        text += f" https://app.devin.ai/sessions/{devin_id}"
+    return SimpleNamespace(text=text, entities=entities)
 
 
 def ctx(*args):
@@ -181,6 +194,63 @@ async def test_cancel_cannot_reach_other_chats_sessions(h):
     h.repo("o/mine", chat_id="3000")
     await h.svc.cancel_command(update(chat_id="3000"), ctx("abcdef00"))
     assert "No session" in h.text
+
+
+async def test_cancel_by_replying_to_notification(h):
+    s = h.session(h.repo("o/r"), "abcdef0000000001")
+    await h.svc.cancel_command(update(reply_to=notification("abcdef0000000001")), ctx())
+    h.svc.devin_client.terminate_session.assert_awaited_once_with("abcdef0000000001")
+    assert h.reload(s).status == SessionStatus.CANCELLED
+
+
+async def test_cancel_without_arg_or_reply_shows_usage(h):
+    h.repo("o/r")
+    await h.svc.cancel_command(update(), ctx())
+    assert "Usage" in h.text
+
+
+# --- /done -------------------------------------------------------------------
+
+async def test_done_by_replying_marks_completed_without_touching_devin(h):
+    s = h.session(h.repo("o/r"), "abcdef0000000001")
+    await h.svc.done_command(update(reply_to=notification("abcdef0000000001")), ctx())
+    s = h.reload(s)
+    assert s.status == SessionStatus.COMPLETED and s.completed_at is not None
+    h.svc.devin_client.terminate_session.assert_not_called()
+    assert "Marked session" in h.text
+
+
+async def test_done_reads_link_from_plain_text_fallback(h):
+    s = h.session(h.repo("o/r"), "abcdef0000000001")
+    await h.svc.done_command(
+        update(reply_to=notification("abcdef0000000001", link_in_entity=False)), ctx()
+    )
+    assert h.reload(s).status == SessionStatus.COMPLETED
+
+
+async def test_done_with_explicit_id(h):
+    s = h.session(h.repo("o/r"), "abcdef0000000001")
+    await h.svc.done_command(update(), ctx("abcdef00"))
+    assert h.reload(s).status == SessionStatus.COMPLETED
+
+
+async def test_done_reply_without_session_link_shows_usage(h):
+    h.session(h.repo("o/r"), "abcdef0000000001")
+    await h.svc.done_command(update(reply_to=notification(None)), ctx())
+    assert "Usage" in h.text
+
+
+async def test_done_already_final(h):
+    h.session(h.repo("o/r"), "abcdef0000000001", status=SessionStatus.CANCELLED)
+    await h.svc.done_command(update(), ctx("abcdef00"))
+    assert "already cancelled" in h.text
+
+
+async def test_done_cannot_reach_other_chats_sessions(h):
+    s = h.session(h.repo("o/other", chat_id="2000"), "abcdef0000000001")
+    h.repo("o/mine", chat_id="3000")
+    await h.svc.done_command(update(chat_id="3000", reply_to=notification("abcdef0000000001")), ctx())
+    assert "No session" in h.text and h.reload(s).status == SessionStatus.RUNNING
 
 
 # --- /create -----------------------------------------------------------------

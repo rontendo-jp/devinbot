@@ -1,10 +1,11 @@
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from html import escape
 from typing import Optional, Dict, Any, List
-from telegram import Update, Bot, InlineKeyboardMarkup
+from telegram import Update, Bot, InlineKeyboardMarkup, Message
 from telegram.ext import Application, CommandHandler, CallbackContext
 from app.core.config import settings
 from app.db.session import SessionLocal
@@ -28,6 +29,9 @@ class CommandScope:
 
 
 DEVIN_SESSION_URL = "https://app.devin.ai/sessions/{}"
+DEVIN_SESSION_URL_RE = re.compile(r"https://app\.devin\.ai/sessions/([0-9a-f]{8,})")
+
+REPLY_HINT = "Reply to this message with /done or /cancel to act on the session."
 
 CREATE_USAGE = "❌ Usage: /create [owner/repo] [--mode normal|fast|lite|ultra|fusion] &lt;prompt&gt;"
 
@@ -50,6 +54,7 @@ class TelegramBotService:
         # Register command handlers
         self.application.add_handler(CommandHandler("status", self.status_command))
         self.application.add_handler(CommandHandler("cancel", self.cancel_command))
+        self.application.add_handler(CommandHandler("done", self.done_command))
         self.application.add_handler(CommandHandler("create", self.create_command))
         self.application.add_handler(CommandHandler("metrics", self.metrics_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
@@ -154,7 +159,7 @@ class TelegramBotService:
         """
         status = session_data.get("status", "unknown")
         repo_name = session_data.get("repository_name", "unknown")
-        session_id = session_data.get("session_id", "unknown")
+        session_id = session_data.get("session_id")
         trigger_type = session_data.get("trigger_type", "manual")
         
         status_emoji = {
@@ -169,12 +174,12 @@ class TelegramBotService:
 {status_emoji} <b>Session {escape(str(status))}</b>
 
 <b>Repository:</b> {escape(str(repo_name))}
-<b>Session ID:</b> {escape(str(session_id))}
+<b>Session ID:</b> {self._session_link(session_id)}
 <b>Trigger:</b> {escape(str(trigger_type))}
 """
         
         if status == "running":
-            message += "\n💡 Devin is working on your request..."
+            message += f"\n💡 Devin is working on your request...\n\n<i>{REPLY_HINT}</i>"
         elif status == "completed":
             message += "\n🎉 Task completed successfully!"
         elif status == "failed":
@@ -300,7 +305,55 @@ class TelegramBotService:
         )
         if last_message:
             message += f"\n<b>Devin says:</b> <i>{escape(last_message)}</i>"
+        if session.status in ACTIVE_STATUSES:
+            message += f"\n\n<i>{REPLY_HINT}</i>"
         await self.send_message_to_topic(repository.telegram_chat_id, repository.telegram_topic_id, message)
+
+    @staticmethod
+    def _session_id_from_reply(message: Optional[Message]) -> Optional[str]:
+        """Devin session ID referenced by the message a command replies to, if any."""
+        replied = message.reply_to_message if message else None
+        if not replied:
+            return None
+        for entity in replied.entities or ():
+            if entity.url:
+                match = DEVIN_SESSION_URL_RE.search(entity.url)
+                if match:
+                    return match.group(1)
+        match = DEVIN_SESSION_URL_RE.search(replied.text or "")
+        return match.group(1) if match else None
+
+    async def _resolve_session(
+        self, db, update: Update, scope: CommandScope, args: List[str], usage: str
+    ) -> Optional[DBSession]:
+        """Find the single session a command targets, from its argument or the replied-to notification."""
+        if args:
+            raw_id = args[0].strip().rstrip("/").split("/")[-1]
+        else:
+            raw_id = self._session_id_from_reply(update.effective_message) or ""
+            if not raw_id:
+                await self._reply(scope, usage)
+                return None
+        if len(raw_id) < 6:
+            await self._reply(scope, "❌ Session ID too short — give at least 6 characters.")
+            return None
+
+        repo_ids = [r.id for r in self._chat_repositories(db, scope)]
+        matches = (
+            db.query(DBSession)
+            .filter(
+                DBSession.repository_id.in_(repo_ids),
+                DBSession.devin_session_id.startswith(raw_id, autoescape=True),
+            )
+            .all()
+        )
+        if not matches:
+            await self._reply(scope, f"❌ No session found matching <code>{escape(raw_id)}</code>.")
+            return None
+        if len(matches) > 1:
+            await self._reply(scope, f"❌ <code>{escape(raw_id)}</code> is ambiguous — give more characters.")
+            return None
+        return matches[0]
 
     async def _last_devin_message(self, devin_session_id: str, limit: int = 400) -> Optional[str]:
         try:
@@ -354,38 +407,18 @@ class TelegramBotService:
         await self._reply(scope, "\n".join(lines))
     
     async def cancel_command(self, update: Update, context: CallbackContext):
-        """Handle /cancel <session_id>: terminate a running Devin session."""
+        """Handle /cancel [session_id] (or reply to a notification): terminate a running Devin session."""
         scope = await self._authorized(update)
         if not scope:
             return
         
-        if not context.args:
-            await self._reply(scope, "❌ Usage: /cancel &lt;session_id&gt;")
-            return
-        
-        raw_id = context.args[0].strip().rstrip("/").split("/")[-1]
-        if len(raw_id) < 6:
-            await self._reply(scope, "❌ Session ID too short — give at least 6 characters.")
-            return
-        
         with SessionLocal() as db:
-            repo_ids = [r.id for r in self._chat_repositories(db, scope)]
-            matches = (
-                db.query(DBSession)
-                .filter(
-                    DBSession.repository_id.in_(repo_ids),
-                    DBSession.devin_session_id.startswith(raw_id, autoescape=True),
-                )
-                .all()
+            session = await self._resolve_session(
+                db, update, scope, list(context.args or []),
+                "❌ Usage: /cancel &lt;session_id&gt; — or reply to a session notification with /cancel",
             )
-            if not matches:
-                await self._reply(scope, f"❌ No session found matching <code>{escape(raw_id)}</code>.")
+            if not session:
                 return
-            if len(matches) > 1:
-                await self._reply(scope, f"❌ <code>{escape(raw_id)}</code> is ambiguous — give more characters.")
-                return
-            
-            session = matches[0]
             if session.status not in (SessionStatus.PENDING, SessionStatus.RUNNING):
                 await self._reply(
                     scope,
@@ -408,6 +441,41 @@ class TelegramBotService:
                 scope,
                 f"🛑 Cancelled session {self._session_link(session.devin_session_id)} "
                 f"(<b>{escape(session.repository.github_repo_path)}</b>).",
+            )
+    
+    async def done_command(self, update: Update, context: CallbackContext):
+        """Handle /done [session_id] (or reply to a notification): mark a session completed locally.
+
+        Devin has no API to declare a session successful, so this only updates DevinBot's
+        own record; the Devin session itself is left untouched (it will suspend on its own).
+        """
+        scope = await self._authorized(update)
+        if not scope:
+            return
+        
+        with SessionLocal() as db:
+            session = await self._resolve_session(
+                db, update, scope, list(context.args or []),
+                "❌ Usage: /done &lt;session_id&gt; — or reply to a session notification with /done",
+            )
+            if not session:
+                return
+            if session.status not in ACTIVE_STATUSES:
+                await self._reply(
+                    scope,
+                    f"ℹ️ Session {self._session_link(session.devin_session_id)} is already {escape(session.status.value)}.",
+                )
+                return
+            
+            session.status = SessionStatus.COMPLETED
+            session.completed_at = datetime.utcnow()
+            db.commit()
+            
+            await self._reply(
+                scope,
+                f"✅ Marked session {self._session_link(session.devin_session_id)} "
+                f"(<b>{escape(session.repository.github_repo_path)}</b>) as completed. "
+                f"Devin reports <code>{escape(session_status_text(session))}</code>; the session is left as is.",
             )
     
     async def create_command(self, update: Update, context: CallbackContext):
@@ -553,6 +621,8 @@ class TelegramBotService:
 
 /status - Show active sessions
 /cancel &lt;session_id&gt; - Cancel a running session
+/done &lt;session_id&gt; - Mark a session as completed (when Devin is just waiting for you)
+  Tip: reply to a session notification with /done or /cancel — no ID needed
 /create [owner/repo] [--mode normal|fast|lite|ultra|fusion] &lt;prompt&gt; - Create a new session
 /metrics - Show current metrics
 /help - Show this help message
