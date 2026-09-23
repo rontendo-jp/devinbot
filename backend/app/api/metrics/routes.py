@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from app.db.session import get_db
@@ -14,29 +14,65 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 devin_client = DevinClient()
 
+TIME_RANGES = {
+    "1h": timedelta(hours=1),
+    "24h": timedelta(hours=24),
+    "7d": timedelta(days=7),
+    "30d": timedelta(days=30),
+}
+
+
+def to_naive_utc(value: datetime) -> datetime:
+    """Normalize an (optionally tz-aware) datetime to naive UTC, matching stored created_at values."""
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def resolve_time_period(
+    time_range: str,
+    time_from: Optional[datetime],
+    time_to: Optional[datetime],
+    now: Optional[datetime] = None,
+) -> tuple[datetime, datetime, str]:
+    """
+    Resolve the [start, end] period for metrics.
+
+    Explicit ``time_from``/``time_to`` take precedence over the preset
+    ``time_range``. Missing ``time_from`` defaults to one hour before ``time_to``;
+    missing ``time_to`` defaults to now.
+    """
+    now = now or datetime.utcnow()
+    if time_from is None and time_to is None:
+        return now - TIME_RANGES.get(time_range, timedelta(hours=24)), now, time_range
+
+    end = to_naive_utc(time_to) if time_to is not None else now
+    start = to_naive_utc(time_from) if time_from is not None else end - timedelta(hours=1)
+    if start > end:
+        raise HTTPException(status_code=422, detail="time_from must be before or equal to time_to")
+    return start, end, "custom"
+
 
 @router.get("/")
 async def get_metrics(
     repository_id: Optional[str] = None,
-    time_range: str = Query("24h", regex="^(1h|24h|7d|30d)$"),
+    time_range: str = Query("24h", regex="^(1h|24h|7d|30d|custom)$"),
+    time_from: Optional[datetime] = Query(None, description="ISO 8601 start of a custom period"),
+    time_to: Optional[datetime] = Query(None, description="ISO 8601 end of a custom period"),
     db: Session = Depends(get_db)
 ):
     """
     Get observability metrics including success rates, session counts, and cost consumption.
+
+    Either pick a preset ``time_range`` or pass an explicit ``time_from``/``time_to``
+    datetime window (which takes precedence over ``time_range``).
     """
-    # Calculate time range
-    now = datetime.utcnow()
-    time_ranges = {
-        "1h": timedelta(hours=1),
-        "24h": timedelta(hours=24),
-        "7d": timedelta(days=7),
-        "30d": timedelta(days=30)
-    }
-    time_delta = time_ranges.get(time_range, timedelta(hours=24))
-    time_before = now - time_delta
+    time_before, now, time_range = resolve_time_period(time_range, time_from, time_to)
     
     # Build base query
-    query = db.query(DBSession).filter(DBSession.created_at >= time_before)
+    query = db.query(DBSession).filter(
+        and_(DBSession.created_at >= time_before, DBSession.created_at <= now)
+    )
     
     if repository_id:
         query = query.filter(DBSession.repository_id == repository_id)
