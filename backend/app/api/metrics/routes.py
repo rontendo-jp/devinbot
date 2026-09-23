@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from app.db.session import get_db
@@ -18,25 +18,39 @@ devin_client = DevinClient()
 @router.get("/")
 async def get_metrics(
     repository_id: Optional[str] = None,
-    time_range: str = Query("24h", regex="^(1h|24h|7d|30d)$"),
+    time_range: str = Query("24h", regex="^(1h|24h|7d|30d|custom)$"),
+    time_from: Optional[datetime] = None,
+    time_to: Optional[datetime] = None,
     db: Session = Depends(get_db)
 ):
     """
     Get observability metrics including success rates, session counts, and cost consumption.
+
+    With time_range=custom, time_from/time_to (ISO 8601) bound the period;
+    time_from defaults to 5 minutes before time_to, time_to defaults to now.
+    time_from/time_to are rejected for preset ranges (they would otherwise be ignored).
     """
-    # Calculate time range
-    now = datetime.utcnow()
-    time_ranges = {
-        "1h": timedelta(hours=1),
-        "24h": timedelta(hours=24),
-        "7d": timedelta(days=7),
-        "30d": timedelta(days=30)
-    }
-    time_delta = time_ranges.get(time_range, timedelta(hours=24))
-    time_before = now - time_delta
+    if time_range != "custom" and (time_from is not None or time_to is not None):
+        raise HTTPException(status_code=400, detail="time_from/time_to require time_range=custom")
+    if time_range == "custom":
+        now = _to_naive_utc(time_to) if time_to else datetime.utcnow()
+        time_before = _to_naive_utc(time_from) if time_from else now - timedelta(minutes=5)
+        if time_before > now:
+            raise HTTPException(status_code=400, detail="time_from must be before time_to")
+    else:
+        now = datetime.utcnow()
+        time_ranges = {
+            "1h": timedelta(hours=1),
+            "24h": timedelta(hours=24),
+            "7d": timedelta(days=7),
+            "30d": timedelta(days=30)
+        }
+        time_before = now - time_ranges.get(time_range, timedelta(hours=24))
     
     # Build base query
-    query = db.query(DBSession).filter(DBSession.created_at >= time_before)
+    query = db.query(DBSession).filter(
+        and_(DBSession.created_at >= time_before, DBSession.created_at <= now)
+    )
     
     if repository_id:
         query = query.filter(DBSession.repository_id == repository_id)
@@ -85,6 +99,13 @@ async def get_metrics(
         "cost_metrics": cost_data,
         "repository": repository_metrics
     }
+
+
+def _to_naive_utc(value: datetime) -> datetime:
+    """Normalize a possibly tz-aware datetime to naive UTC (how created_at is stored)."""
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def summarize_consumption(consumption_data: dict) -> dict:
