@@ -83,6 +83,11 @@ def test_custom_range_accepts_timezone_aware_iso(client):
     assert r.json()["time_period"]["start"] == "2026-01-01T00:00:00"
 
 
+def test_preset_range_rejects_explicit_bounds(client):
+    r = client.get("/api/metrics/", params={"time_range": "7d", "time_to": "2026-01-01T00:00:00"})
+    assert r.status_code == 400
+
+
 def test_custom_range_rejects_from_after_to(client):
     r = client.get(
         "/api/metrics/",

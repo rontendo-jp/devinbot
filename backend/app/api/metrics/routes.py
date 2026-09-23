@@ -28,7 +28,10 @@ async def get_metrics(
 
     With time_range=custom, time_from/time_to (ISO 8601) bound the period;
     time_from defaults to 5 minutes before time_to, time_to defaults to now.
+    time_from/time_to are rejected for preset ranges (they would otherwise be ignored).
     """
+    if time_range != "custom" and (time_from is not None or time_to is not None):
+        raise HTTPException(status_code=400, detail="time_from/time_to require time_range=custom")
     if time_range == "custom":
         now = _to_naive_utc(time_to) if time_to else datetime.utcnow()
         time_before = _to_naive_utc(time_from) if time_from else now - timedelta(minutes=5)

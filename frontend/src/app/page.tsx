@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import MetricsCard from '@/components/MetricsCard';
 import SessionList from '@/components/SessionList';
 import RepositorySelector from '@/components/RepositorySelector';
@@ -12,6 +12,7 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { usePolling } from '@/hooks/usePolling';
 
 const TIME_RANGES = ['1h', '24h', '7d', '30d', 'custom'] as const;
+const CUSTOM_RANGE_DEBOUNCE_MS = 600;
 
 /** Format a Date for an <input type="datetime-local"> value (local time, minute precision). */
 function toLocalInputValue(date: Date): string {
@@ -30,8 +31,15 @@ export default function Home() {
   const [selectedRepository, setSelectedRepository] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState('24h');
   const [customRange, setCustomRange] = useState(defaultCustomRange);
-  const customFromDate = new Date(customRange.from);
-  const customToDate = new Date(customRange.to);
+  const [appliedRange, setAppliedRange] = useState(customRange);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedRange(customRange), CUSTOM_RANGE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [customRange]);
+
+  const customFromDate = new Date(appliedRange.from);
+  const customToDate = new Date(appliedRange.to);
   const customRangeValid =
     !isNaN(customFromDate.getTime()) && !isNaN(customToDate.getTime()) && customFromDate <= customToDate;
   const [metrics, setMetrics] = useState<any>(null);
@@ -72,7 +80,7 @@ export default function Home() {
       }
     },
     config.metricsPollIntervalMs,
-    [selectedRepository, timeRange, customRange.from, customRange.to],
+    [selectedRepository, timeRange, appliedRange.from, appliedRange.to],
   );
 
   return (
@@ -107,7 +115,11 @@ export default function Home() {
               <button
                 key={range}
                 onClick={() => {
-                  if (range === 'custom') setCustomRange(defaultCustomRange());
+                  if (range === 'custom') {
+                    const fresh = defaultCustomRange();
+                    setCustomRange(fresh);
+                    setAppliedRange(fresh);
+                  }
                   setTimeRange(range);
                 }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
