@@ -11,12 +11,29 @@ import { config } from '@/config';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { usePolling } from '@/hooks/usePolling';
 
-const TIME_RANGES = ['1h', '24h', '7d', '30d'] as const;
+const TIME_RANGES = ['1h', '24h', '7d', '30d', 'custom'] as const;
+
+/** Format a Date for an <input type="datetime-local"> value (local time, minute precision). */
+function toLocalInputValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function defaultCustomRange() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 5 * 60 * 1000);
+  return { from: toLocalInputValue(from), to: toLocalInputValue(to) };
+}
 
 export default function Home() {
   const { t } = useLocale();
   const [selectedRepository, setSelectedRepository] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState('24h');
+  const [customRange, setCustomRange] = useState(defaultCustomRange);
+  const customFromDate = new Date(customRange.from);
+  const customToDate = new Date(customRange.to);
+  const customRangeValid =
+    !isNaN(customFromDate.getTime()) && !isNaN(customToDate.getTime()) && customFromDate <= customToDate;
   const [metrics, setMetrics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<TranslationKey | null>(null);
@@ -30,6 +47,15 @@ export default function Home() {
         const params = new URLSearchParams();
         if (selectedRepository) params.append('repository_id', selectedRepository);
         params.append('time_range', timeRange);
+        if (timeRange === 'custom') {
+          if (!customRangeValid) {
+            setError('timeRange.invalidRange');
+            setLoading(false);
+            return;
+          }
+          params.append('time_from', customFromDate.toISOString());
+          params.append('time_to', customToDate.toISOString());
+        }
 
         const response = await fetch(`${config.apiUrl}/api/metrics/?${params}`, { signal });
         if (!response.ok) throw new Error('Failed to fetch metrics');
@@ -46,7 +72,7 @@ export default function Home() {
       }
     },
     config.metricsPollIntervalMs,
-    [selectedRepository, timeRange],
+    [selectedRepository, timeRange, customRange.from, customRange.to],
   );
 
   return (
@@ -80,7 +106,10 @@ export default function Home() {
             {TIME_RANGES.map((range) => (
               <button
                 key={range}
-                onClick={() => setTimeRange(range)}
+                onClick={() => {
+                  if (range === 'custom') setCustomRange(defaultCustomRange());
+                  setTimeRange(range);
+                }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   timeRange === range
                     ? 'bg-blue-600 text-white'
@@ -91,6 +120,31 @@ export default function Home() {
               </button>
             ))}
           </div>
+
+          {timeRange === 'custom' && (
+            <div className="flex flex-wrap items-center gap-2 w-full">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                {t('timeRange.from')}
+                <input
+                  type="datetime-local"
+                  value={customRange.from}
+                  max={customRange.to}
+                  onChange={(e) => setCustomRange((r) => ({ ...r, from: e.target.value }))}
+                  className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-900"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                {t('timeRange.to')}
+                <input
+                  type="datetime-local"
+                  value={customRange.to}
+                  min={customRange.from}
+                  onChange={(e) => setCustomRange((r) => ({ ...r, to: e.target.value }))}
+                  className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-900"
+                />
+              </label>
+            </div>
+          )}
         </div>
 
         {/* Error State */}
