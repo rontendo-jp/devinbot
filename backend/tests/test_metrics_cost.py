@@ -60,3 +60,36 @@ async def test_get_cost_consumption_reports_forbidden(monkeypatch):
 
     assert result["total_acus"] is None
     assert "ViewOrgConsumption" in result["error"]
+
+
+def test_resolve_time_period_preset_ends_at_now():
+    now = datetime(2026, 9, 23, 6, 0, 0)
+    start, end = routes.resolve_time_period("7d", None, None, now=now)
+    assert end == now
+    assert (end - start).days == 7
+
+
+def test_resolve_time_period_custom_defaults_to_last_hour():
+    now = datetime(2026, 9, 23, 6, 0, 0)
+    start, end = routes.resolve_time_period("custom", None, None, now=now)
+    assert end == now
+    assert start == datetime(2026, 9, 23, 5, 0, 0)
+
+
+def test_resolve_time_period_custom_normalizes_to_utc():
+    from datetime import timedelta
+    tz = timezone(timedelta(hours=9))
+    start, end = routes.resolve_time_period(
+        "custom",
+        datetime(2026, 9, 23, 9, 0, tzinfo=tz),
+        datetime(2026, 9, 23, 12, 0, tzinfo=tz),
+    )
+    assert start == datetime(2026, 9, 23, 0, 0)
+    assert end == datetime(2026, 9, 23, 3, 0)
+
+
+def test_resolve_time_period_custom_rejects_inverted_range():
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc:
+        routes.resolve_time_period("custom", datetime(2026, 9, 23, 5), datetime(2026, 9, 23, 4))
+    assert exc.value.status_code == 422

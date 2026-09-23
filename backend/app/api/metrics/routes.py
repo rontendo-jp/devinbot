@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from app.db.session import get_db
@@ -15,28 +15,61 @@ router = APIRouter()
 devin_client = DevinClient()
 
 
+TIME_RANGES = {
+    "1h": timedelta(hours=1),
+    "24h": timedelta(hours=24),
+    "7d": timedelta(days=7),
+    "30d": timedelta(days=30),
+}
+
+
+def to_naive_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def resolve_time_period(
+    time_range: str,
+    start_time: Optional[datetime],
+    end_time: Optional[datetime],
+    now: Optional[datetime] = None,
+) -> tuple[datetime, datetime]:
+    """
+    Resolve the [start, end] window (naive UTC) for a metrics request.
+
+    Presets (1h/24h/7d/30d) end at `now`. For `custom`, `end_time` defaults to now
+    and `start_time` defaults to one hour before the end.
+    """
+    now = now or datetime.utcnow()
+    if time_range != "custom":
+        return now - TIME_RANGES[time_range], now
+
+    end = to_naive_utc(end_time) if end_time else now
+    start = to_naive_utc(start_time) if start_time else end - timedelta(hours=1)
+    if start >= end:
+        raise HTTPException(status_code=422, detail="start_time must be earlier than end_time")
+    return start, end
+
+
 @router.get("/")
 async def get_metrics(
     repository_id: Optional[str] = None,
-    time_range: str = Query("24h", regex="^(1h|24h|7d|30d)$"),
+    time_range: str = Query("24h", regex="^(1h|24h|7d|30d|custom)$"),
+    start_time: Optional[datetime] = Query(None, description="Custom range start (ISO 8601); defaults to end_time - 1h"),
+    end_time: Optional[datetime] = Query(None, description="Custom range end (ISO 8601); defaults to now"),
     db: Session = Depends(get_db)
 ):
     """
     Get observability metrics including success rates, session counts, and cost consumption.
     """
-    # Calculate time range
-    now = datetime.utcnow()
-    time_ranges = {
-        "1h": timedelta(hours=1),
-        "24h": timedelta(hours=24),
-        "7d": timedelta(days=7),
-        "30d": timedelta(days=30)
-    }
-    time_delta = time_ranges.get(time_range, timedelta(hours=24))
-    time_before = now - time_delta
+    time_before, now = resolve_time_period(time_range, start_time, end_time)
     
     # Build base query
-    query = db.query(DBSession).filter(DBSession.created_at >= time_before)
+    query = db.query(DBSession).filter(
+        DBSession.created_at >= time_before,
+        DBSession.created_at <= now,
+    )
     
     if repository_id:
         query = query.filter(DBSession.repository_id == repository_id)
