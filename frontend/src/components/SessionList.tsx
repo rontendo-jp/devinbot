@@ -60,6 +60,16 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
+const PROMPT_PREVIEW_LENGTH = 100;
+
+// Cut at a whitespace boundary so a URL is never split into an unclickable fragment.
+function truncatePrompt(prompt: string): string {
+  if (prompt.length <= PROMPT_PREVIEW_LENGTH) return prompt;
+  const wordEnd = prompt.slice(PROMPT_PREVIEW_LENGTH).search(/\s/);
+  if (wordEnd === -1) return prompt;
+  return `${prompt.slice(0, PROMPT_PREVIEW_LENGTH + wordEnd)}...`;
+}
+
 function linkify(text: string) {
   return text.split(URL_PATTERN).map((part, i) =>
     i % 2 === 1 ? (
@@ -218,7 +228,7 @@ export default function SessionList({ selectedRepository }: SessionListProps) {
                     </span>
                   </div>
                   <p className="text-sm text-gray-900 font-medium mb-1 truncate" title={session.prompt}>
-                    {session.prompt.length > 100 ? `${session.prompt.substring(0, 100)}...` : session.prompt}
+                    {linkify(truncatePrompt(session.prompt))}
                   </p>
                   {session.last_devin_message && (
                     <div className="mb-2 rounded-md bg-gray-50 border border-gray-200 p-3">
